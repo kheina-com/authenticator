@@ -5,6 +5,7 @@ from secrets import token_bytes, randbelow
 from base64 import b64encode, b64decode
 from traceback import format_tb
 from hashlib import shake_256
+from uuid import uuid4
 import ujson as json
 import sys
 
@@ -67,7 +68,7 @@ class Authenticator :
 
 	def verifyKey(self, key) :
 		"""
-		returns user data on success
+		returns user data on success otherwise None
 		{
 			"user_id": int,
 			"user": str,
@@ -96,14 +97,11 @@ class Authenticator :
 				'icon': data[0][3],
 				'key': key,
 			}
-		return {
-			'error': 'verification failed.',
-		}
 
 
 	def verifyEmail(self, email, password, generateKey=False) :
 		"""
-		returns user data on success
+		returns user data on success otherwise error dict
 		{
 			"user_id": int,
 			"user": str,
@@ -169,15 +167,17 @@ class Authenticator :
 				'key': b64encode(key).decode() if key else None,
 			}
 		except:
-			self.logger.exception({ })
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
 			return {
 				'error': 'verification failed.',
+				'refid': refid,
 			}
 
 
 	def create(self, handle, name, email, password) :
 		"""
-		returns: True on success, otherwise False
+		returns: None on success, otherwise error dict
 		"""
 		try :
 			email_hash = self._hash_email(email)
@@ -203,6 +203,9 @@ class Authenticator :
 				commit=True
 			)
 		except :
-			self.logger.exception({ })
-			return False
-		return True
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			return {
+				'error': 'creation failed.',
+				'refid': refid,
+			}
