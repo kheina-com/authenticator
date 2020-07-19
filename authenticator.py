@@ -176,7 +176,7 @@ class Authenticator :
 			}
 
 
-	def create(self, handle, email, password) :
+	def create(self, handle, name, email, password) :
 		"""
 		returns: True on success, otherwise False
 		"""
@@ -186,7 +186,7 @@ class Authenticator :
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
 			self._query("""
 				INSERT INTO users
-				(display_name, handle)
+				(handle, display_name)
 				VALUES
 				(%s, %s);
 
@@ -197,7 +197,7 @@ class Authenticator :
 				FROM users
 				WHERE handle = %s;
 				""", (
-					handle, handle,
+					handle, name,
 					Binary(email_hash), Binary(password_hash), secret,
 					handle,
 				),
