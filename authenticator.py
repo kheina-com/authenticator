@@ -1,11 +1,10 @@
 from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, errors
 from kh_common import getFullyQualifiedClassName, logging
 from argon2 import PasswordHasher as Argon2
+from secrets import token_bytes, randbelow
 from base64 import b64encode, b64decode
 from traceback import format_tb
-from secrets import token_bytes
 from hashlib import shake_256
-from random import randrange
 import ujson as json
 import sys
 
@@ -182,7 +181,7 @@ class Authenticator :
 		"""
 		try :
 			email_hash = self._hash_email(email)
-			secret = randrange(len(self._secrets))
+			secret = randbelow(len(self._secrets))
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
 			self._query("""
 				INSERT INTO users
