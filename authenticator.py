@@ -66,7 +66,7 @@ class Authenticator :
 		return token_bytes(60)
 
 
-	def verify(self, key) :
+	def verifyKey(self, key) :
 		"""
 		returns user data on success
 		{
@@ -102,7 +102,7 @@ class Authenticator :
 		}
 
 
-	def verify(self, email, password, generateKey=False) :
+	def verifyEmail(self, email, password, generateKey=False) :
 		"""
 		returns user data on success
 		{
@@ -163,11 +163,11 @@ class Authenticator :
 				)
 
 			return {
-				'user_id': 
+				'user_id': user_id,
 				'user': handle,
 				'name': name,
 				'icon': post_icon,
-				'key': b64encode(key).decode(),
+				'key': b64encode(key).decode() if key else None,
 			}
 		except:
 			self.logger.exception({ })
