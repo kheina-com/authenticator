@@ -61,7 +61,7 @@ class Authenticator :
 		return shake_256(email.encode() + self._secrets[0]).digest(256)
 
 
-	def _generate_cookie(self) :
+	def _generate_key(self) :
 		# 60 for a round base64 character
 		return token_bytes(60)
 
@@ -70,6 +70,7 @@ class Authenticator :
 		"""
 		returns user data on success
 		{
+			"user_id": int,
 			"user": str,
 			"name": str,
 			"icon": str,
@@ -77,7 +78,7 @@ class Authenticator :
 		}
 		"""
 		data = self._query("""
-			SELECT handle, display_name, post_id
+			SELECT user_auth.user_id, handle, display_name, post_id
 			FROM user_auth
 				INNER JOIN users
 					ON users.user_id = user_auth.user_id
@@ -90,9 +91,10 @@ class Authenticator :
 		)
 		if data :
 			return {
-				'user': data[0][0],
-				'name': data[0][1],
-				'icon': data[0][2],
+				'user_id': data[0][0],
+				'user': data[0][1],
+				'name': data[0][2],
+				'icon': data[0][3],
 				'key': key,
 			}
 		return {
@@ -100,10 +102,11 @@ class Authenticator :
 		}
 
 
-	def verify(self, email, password) :
+	def verify(self, email, password, generateKey=False) :
 		"""
 		returns user data on success
 		{
+			"user_id": int,
 			"user": str,
 			"name": str,
 			"icon": str,
@@ -126,9 +129,11 @@ class Authenticator :
 			)
 			if not data :
 				return {
-					'error': 'email does not exist.',
+					'error': 'verification failed.',
 				}
 			user_id, password_hash, secret, handle, name, post_icon = data[0]
+
+			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
 				return None
@@ -144,21 +149,25 @@ class Authenticator :
 					commit=True
 				)
 
-			cookie = self._generate_cookie()
-			self._query("""
-				INSERT INTO user_auth
-				(user_id, key)
-				VALUES
-				(%s, %s);
-				""",
-				(user_id, Binary(cookie)),
-				commit=True
-			)
+			key = None
+			if generateKey :
+				key = self._generate_key()
+				self._query("""
+					INSERT INTO user_auth
+					(user_id, key)
+					VALUES
+					(%s, %s);
+					""",
+					(user_id, Binary(key)),
+					commit=True
+				)
+
 			return {
+				'user_id': 
 				'user': handle,
 				'name': name,
 				'icon': post_icon,
-				'key': b64encode(cookie).decode(),
+				'key': b64encode(key).decode(),
 			}
 		except:
 			self.logger.exception({ })
