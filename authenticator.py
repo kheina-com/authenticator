@@ -113,7 +113,7 @@ class Authenticator :
 		try :
 			email_hash = self._hash_email(email)
 			data = self._query("""
-				SELECT user_id, password, secret, handle, display_name, post_id
+				SELECT user_login.user_id, password, secret, handle, display_name, post_id
 				FROM user_login
 					INNER JOIN users
 						ON users.user_id = user_login.user_id
