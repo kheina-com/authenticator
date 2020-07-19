@@ -181,11 +181,14 @@ class Authenticator :
 
 				INSERT INTO user_login
 				(user_id, email_hash, password, secret)
-				VALUES
-				(%s, %s, %s, %s);
+				SELECT
+				user_id, %s, %s, %s
+				FROM users
+				WHERE handle = %s;
 				""", (
 					handle, handle,
-					user_id, Binary(email_hash), Binary(password_hash), secret,
+					Binary(email_hash), Binary(password_hash), secret,
+					handle,
 				),
 				commit=True
 			)
