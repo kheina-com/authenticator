@@ -1,0 +1,7 @@
+aiofiles
+psycopg2-binary
+starlette
+ujson
+aiohttp
+uvicorn
+argon2-cffi
