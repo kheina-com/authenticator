@@ -31,13 +31,13 @@ class Authenticator :
 			self._secrets = [bytes.fromhex(salt) for salt in credentials['salts']]
 
 
-	def _query(self, sql, params=(), commit=False, maxretry=2) :
+	def _query(self, sql, params=(), commit=False, fetch=False, maxretry=2) :
 		try :
 			cur = self._conn.cursor()
 			cur.execute(sql, params)
 			if commit :
 				self._conn.commit()
-			return cur.fetchall()
+			return cur.fetchall() if fetch else None
 		except DataError :
 			e, exc_tb = sys.exc_info()[1:]
 			self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
@@ -48,7 +48,7 @@ class Authenticator :
 			if maxretry > 1 :
 				e, exc_tb = sys.exc_info()[1:]
 				self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
-				return self._query(sql, params, maxretry=maxretry-1)
+				return self._query(sql, params, commit, fetch, maxretry - 1)
 			else :
 				self.logger.exception({ })
 				raise
@@ -86,6 +86,7 @@ class Authenticator :
 			WHERE key = %s;
 			""",
 			(Binary(b64decode(key)),),
+			fetch=True,
 		)
 		if data :
 			return {
@@ -121,6 +122,7 @@ class Authenticator :
 				WHERE email_hash = %s;
 				""",
 				(Binary(email_hash),),
+				fetch=True,
 			)
 			if not data :
 				return {
