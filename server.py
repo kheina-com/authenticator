@@ -96,12 +96,12 @@ async def v1createUser(req) :
 		email = requestJson.get('email')
 		password = requestJson.get('password')
 
-		if email and password :
+		if name and handle and email and password :
 			return UJSONResponse(authServer.create(handle, name, email, password))
 
 		else :
 			return UJSONResponse({
-				'error': 'email or password missing.',
+				'error': 'parameter missing.',
 			})
 
 	except :
