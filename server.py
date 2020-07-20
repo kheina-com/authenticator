@@ -79,6 +79,35 @@ async def v1authorizeLogin(req) :
 		return await JSONErrorHandler(req)
 
 
+async def v1createUser(req) :
+	"""
+	{
+		"name": str,
+		"handle": str,
+		"email": str,
+		"password": str
+	}
+	"""
+	try :
+		requestJson = await req.json()
+
+		name = requestJson.get('name')
+		handle = requestJson.get('handle')
+		email = requestJson.get('email')
+		password = requestJson.get('password')
+
+		if email and password :
+			return UJSONResponse(authServer.create(handle, name, email, password))
+
+		else :
+			return UJSONResponse({
+				'error': 'email or password missing.',
+			})
+
+	except :
+		return await JSONErrorHandler(req)
+
+
 async def shutdown() :
 	authServer.close()
 
@@ -90,17 +119,18 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import Route, Mount
 
 middleware = [
-    Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
+	# Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
 ]
 
 routes = [
 	Route('/v1/key', endpoint=v1authorizeKey, methods=('POST',)),
 	Route('/v1/login', endpoint=v1authorizeLogin, methods=('POST',)),
+	Route('/v1/create', endpoint=v1createUser, methods=('POST',)),
 ]
 
 app = Starlette(
 	routes=routes,
-	# middleware=middleware,
+	middleware=middleware,
 	on_shutdown=[shutdown],
 )
 
