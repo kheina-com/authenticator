@@ -15,7 +15,7 @@ class Authenticator :
 	def __init__(self) :
 		self._connect()
 		self._initArgon2()
-		self.logger = logging.getLogger('authenticator')
+		self.logger = logging.getLogger('auth')
 
 
 	def _connect(self) :
@@ -66,6 +66,11 @@ class Authenticator :
 		return token_bytes(60)
 
 
+	def close(self) :
+		self._conn.close()
+		return self._conn.closed
+
+
 	def verifyKey(self, key) :
 		"""
 		returns user data on success otherwise None
@@ -99,7 +104,7 @@ class Authenticator :
 			}
 
 
-	def verifyEmail(self, email, password, generateKey=False) :
+	def verifyLogin(self, email, password, generateKey=False) :
 		"""
 		returns user data on success otherwise error dict
 		{
