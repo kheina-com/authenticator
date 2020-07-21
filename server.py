@@ -5,6 +5,7 @@ from traceback import format_tb
 from uuid import uuid4
 import ujson as json
 import time
+import sys
 
 
 logger = logging.getLogger('auth')

@@ -91,9 +91,9 @@ class Authenticator :
 		}
 		"""
 		try :
-			key = b64decode(key)
-			ref_id = key[:16].hex()
-			key_load = key[16:]
+			key_load = b64decode(key)
+			ref_id = key_load[:16].hex()
+			key_load = key_load[16:]
 			data = self._query("""
 				SELECT user_auth.user_id, key, salt, secret, handle, display_name, post_id
 				FROM user_auth
