@@ -4,7 +4,7 @@ from kh_common import getFullyQualifiedClassName, logging
 from argon2 import PasswordHasher as Argon2
 from base64 import b64encode, b64decode
 from traceback import format_tb
-from hashlib import shake_256
+from hashlib import sha512
 from uuid import uuid4
 import ujson as json
 import sys
@@ -58,11 +58,11 @@ class Authenticator :
 
 	def _hash_email(self, email) :
 		# always use the first secret since we can't retrieve the record without hashing it
-		return shake_256(email.encode() + self._secrets[0]).digest(64)
+		return sha512(email.encode() + self._secrets[0]).digest()
 
 
 	def _hash_key(self, key, salt, secret) :
-		return shake_256(key + salt + self._secrets[secret]).digest(64)
+		return sha512(key + salt + self._secrets[secret]).digest()
 
 
 	def _generate_key(self) :
