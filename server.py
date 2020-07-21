@@ -108,6 +108,25 @@ async def v1createUser(req) :
 		return await JSONErrorHandler(req)
 
 
+async def v1help(req) :
+	return UJSONResponse({
+		'/v1/key': {
+			'key': 'str'
+		},
+		'/v1/login': {
+			'email': 'str',
+			'password': 'str',
+			'generate_key': 'Optional[bool]'
+		},
+		'/v1/create': {
+			'name': 'str',
+			'handle': 'str',
+			'email': 'str',
+			'password': 'str'
+		},
+	})
+
+
 async def shutdown() :
 	authServer.close()
 
@@ -126,6 +145,7 @@ routes = [
 	Route('/v1/key', endpoint=v1authorizeKey, methods=('POST',)),
 	Route('/v1/login', endpoint=v1authorizeLogin, methods=('POST',)),
 	Route('/v1/create', endpoint=v1createUser, methods=('POST',)),
+	Route('/v1/help', endpoint=v1help, methods=('GET',)),
 ]
 
 app = Starlette(

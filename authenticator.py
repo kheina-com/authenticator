@@ -1,7 +1,7 @@
 from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, errors
+from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
 from argon2 import PasswordHasher as Argon2
-from secrets import token_bytes, randbelow
 from base64 import b64encode, b64decode
 from traceback import format_tb
 from hashlib import shake_256
@@ -58,12 +58,19 @@ class Authenticator :
 
 	def _hash_email(self, email) :
 		# always use the first secret since we can't retrieve the record without hashing it
-		return shake_256(email.encode() + self._secrets[0]).digest(256)
+		return shake_256(email.encode() + self._secrets[0]).digest(64)
+
+
+	def _hash_key(self, key, salt, secret) :
+		return shake_256(key + salt + self._secrets[secret]).digest(64)
 
 
 	def _generate_key(self) :
-		# 60 for a round base64 character
-		return token_bytes(60)
+		# 44 for a round base64 character when paired with uuid
+		key = token_bytes(44)
+		salt = token_bytes(44)
+		secret = randbelow(len(self._secrets))
+		return key, salt, secret, self._hash_key(key, salt, secret)
 
 
 	def close(self) :
@@ -73,6 +80,7 @@ class Authenticator :
 
 	def verifyKey(self, key) :
 		"""
+		key = b64encode(ref_id + key_hash)
 		returns user data on success otherwise None
 		{
 			"user_id": int,
@@ -82,25 +90,43 @@ class Authenticator :
 			"key": str,
 		}
 		"""
-		data = self._query("""
-			SELECT user_auth.user_id, handle, display_name, post_id
-			FROM user_auth
-				INNER JOIN users
-					ON users.user_id = user_auth.user_id
-				LEFT JOIN user_icon
-					ON user_auth.user_id = user_icon.user_id
-			WHERE key = %s;
-			""",
-			(Binary(b64decode(key)),),
-			fetch=True,
-		)
-		if data :
+		try :
+			key = b64decode(key)
+			ref_id = key[:16].hex()
+			key = key[16:]
+			data = self._query("""
+				SELECT user_auth.user_id, key, salt, secret, handle, display_name, post_id
+				FROM user_auth
+					INNER JOIN users
+						ON users.user_id = user_auth.user_id
+					LEFT JOIN user_icon
+						ON user_auth.user_id = user_icon.user_id
+				WHERE ref_id = %s;
+				""",
+				(ref_id,),
+				fetch=True,
+			)
+			if not data :
+				return {
+					'error': 'verification failed.',
+				}
+
+			user_id, key_hash, salt, secret, handle, display_name, post_id = data[0]
+
+			if compare_digest(key_hash, self._hash_key(key, salt, secret)) :
+				return {
+					'user_id': user_id,
+					'user': handle,
+					'name': display_name,
+					'icon': post_id,
+					'key': key,
+				}
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
 			return {
-				'user_id': data[0][0],
-				'user': data[0][1],
-				'name': data[0][2],
-				'icon': data[0][3],
-				'key': key,
+				'error': 'verification failed.',
+				'refid': refid,
 			}
 
 
@@ -148,21 +174,25 @@ class Authenticator :
 					WHERE email_hash = %s;
 					""",
 					(Binary(password_hash), Binary(email_hash)),
-					commit=True
+					commit=True,
 				)
 
 			key = None
 			if generateKey :
-				key = self._generate_key()
-				self._query("""
+				key, key_salt, key_hash, key_secret = self._generate_key()
+				data = self._query("""
 					INSERT INTO user_auth
-					(user_id, key)
+					(user_id, key, salt, secret)
 					VALUES
-					(%s, %s);
+					(%s, %s, %s, %s)
+					RETURNING
+					ref_id;
 					""",
-					(user_id, Binary(key)),
-					commit=True
+					(user_id, Binary(key_hash), Binary(key_salt), secret),
+					commit=True,
+					fetch=True,
 				)
+				key = bytes.fromhex(data[0][0].replace('-', '')) + key
 
 			return {
 				'user_id': user_id,
@@ -205,7 +235,7 @@ class Authenticator :
 					Binary(email_hash), Binary(password_hash), secret,
 					handle,
 				),
-				commit=True
+				commit=True,
 			)
 		except :
 			refid = uuid4().hex
