@@ -93,7 +93,7 @@ class Authenticator :
 		try :
 			key = b64decode(key)
 			ref_id = key[:16].hex()
-			key = key[16:]
+			key_load = key[16:]
 			data = self._query("""
 				SELECT user_auth.user_id, key, salt, secret, handle, display_name, post_id
 				FROM user_auth
@@ -113,13 +113,17 @@ class Authenticator :
 
 			user_id, key_hash, salt, secret, handle, display_name, post_id = data[0]
 
-			if compare_digest(key_hash, self._hash_key(key, salt, secret)) :
+			if compare_digest(key_hash, self._hash_key(key_load, salt, secret)) :
 				return {
 					'user_id': user_id,
 					'user': handle,
 					'name': display_name,
 					'icon': post_id,
 					'key': key,
+				}
+			else :
+				return {
+					'error': 'verification failed.',
 				}
 		except :
 			refid = uuid4().hex
@@ -179,7 +183,7 @@ class Authenticator :
 
 			key = None
 			if generateKey :
-				key, key_salt, key_hash, key_secret = self._generate_key()
+				key, key_salt, key_secret, key_hash = self._generate_key()
 				data = self._query("""
 					INSERT INTO user_auth
 					(user_id, key, salt, secret)
@@ -188,7 +192,7 @@ class Authenticator :
 					RETURNING
 					ref_id;
 					""",
-					(user_id, Binary(key_hash), Binary(key_salt), secret),
+					(user_id, Binary(key_hash), Binary(key_salt), key_secret),
 					commit=True,
 					fetch=True,
 				)
@@ -218,7 +222,7 @@ class Authenticator :
 			email_hash = self._hash_email(email)
 			secret = randbelow(len(self._secrets))
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
-			self._query("""
+			data = self._query("""
 				INSERT INTO users
 				(handle, display_name)
 				VALUES
@@ -229,14 +233,21 @@ class Authenticator :
 				SELECT
 				user_id, %s, %s, %s
 				FROM users
-				WHERE handle = %s;
+				WHERE handle = %s
+				RETURNING user_id;
 				""", (
 					handle, name,
 					Binary(email_hash), Binary(password_hash), secret,
 					handle,
 				),
 				commit=True,
+				fetch=True,
 			)
+			return {
+				'user_id': data[0][0],
+				'user': handle,
+				'name': name,
+			}
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
