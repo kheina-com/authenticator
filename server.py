@@ -2,7 +2,6 @@ from kh_common import logging, getFullyQualifiedClassName
 from starlette.responses import UJSONResponse
 from authenticator import Authenticator
 from traceback import format_tb
-from uuid import uuid4
 import ujson as json
 import time
 import sys
@@ -19,17 +18,13 @@ async def JSONErrorHandler(req) :
 	error = {
 		'error': f'{status} {getFullyQualifiedClassName(e)}: {e}',
 		'status': status,
-		'stacktrace': format_tb(exc_tb),
 		'method': req.method,
 		'url': str(req.url),
-		'refid': uuid4().hex,
 		**getattr(e, 'logdata', { }),
 	}
-	logger.error(error)
 	return UJSONResponse(
 		error,
 		status_code=status,
-		# headers={ },
 	)
 
 

@@ -1,6 +1,7 @@
 from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, errors
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
+from kh_common.http_error import Unauthorized
 from argon2 import PasswordHasher as Argon2
 from base64 import b64encode, b64decode
 from traceback import format_tb
@@ -13,14 +14,15 @@ import sys
 class Authenticator :
 
 	def __init__(self) :
+		self.logger = logging.getLogger('auth')
 		self._connect()
 		self._initArgon2()
-		self.logger = logging.getLogger('auth')
 
 
 	def _connect(self) :
 		with open('credentials/postgres.json') as credentials :
 			credentials = json.load(credentials)
+			self.logger.info(f'connecting to database as user {credentials["user"]}')
 			self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
 
 
@@ -81,7 +83,7 @@ class Authenticator :
 	def verifyKey(self, key) :
 		"""
 		key = b64encode(ref_id + key_hash)
-		returns user data on success otherwise None
+		returns user data on success otherwise raises Unauthorized
 		{
 			"user_id": int,
 			"user": str,
@@ -96,7 +98,7 @@ class Authenticator :
 			key_load = key_load[16:]
 			data = self._query("""
 				SELECT user_auth.user_id, key, salt, secret, handle, display_name, post_id
-				FROM user_auth
+				FROM kheina.auth.user_auth
 					INNER JOIN users
 						ON users.user_id = user_auth.user_id
 					LEFT JOIN user_icon
@@ -107,9 +109,7 @@ class Authenticator :
 				fetch=True,
 			)
 			if not data :
-				return {
-					'error': 'verification failed.',
-				}
+				raise Unauthorized('verification failed.')
 
 			user_id, key_hash, salt, secret, handle, display_name, post_id = data[0]
 
@@ -122,21 +122,16 @@ class Authenticator :
 					'key': key,
 				}
 			else :
-				return {
-					'error': 'verification failed.',
-				}
+				raise Unauthorized('verification failed.')
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			return {
-				'error': 'verification failed.',
-				'refid': refid,
-			}
+			raise Unauthorized('verification failed.', logdata={ 'refid': refid })
 
 
 	def verifyLogin(self, email, password, generateKey=False) :
 		"""
-		returns user data on success otherwise error dict
+		returns user data on success otherwise raises Unauthorized
 		{
 			"user_id": int,
 			"user": str,
@@ -149,7 +144,7 @@ class Authenticator :
 			email_hash = self._hash_email(email)
 			data = self._query("""
 				SELECT user_login.user_id, password, secret, handle, display_name, post_id
-				FROM user_login
+				FROM kheina.auth.user_login
 					INNER JOIN users
 						ON users.user_id = user_login.user_id
 					LEFT JOIN user_icon
@@ -160,20 +155,18 @@ class Authenticator :
 				fetch=True,
 			)
 			if not data :
-				return {
-					'error': 'verification failed.',
-				}
+				raise Unauthorized('verification failed.')
 			user_id, password_hash, secret, handle, name, post_icon = data[0]
 
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
-				return None
+				raise Unauthorized('verification failed.')
 
 			if self._argon2.check_needs_rehash(password_hash) :
 				password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
 				self._query("""
-					UPDATE user_login
+					UPDATE kheina.auth.user_login
 					SET password = %s
 					WHERE email_hash = %s;
 					""",
@@ -185,7 +178,7 @@ class Authenticator :
 			if generateKey :
 				key, key_salt, key_secret, key_hash = self._generate_key()
 				data = self._query("""
-					INSERT INTO user_auth
+					INSERT INTO kheina.auth.user_auth
 					(user_id, key, salt, secret)
 					VALUES
 					(%s, %s, %s, %s)
@@ -208,15 +201,12 @@ class Authenticator :
 		except:
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			return {
-				'error': 'verification failed.',
-				'refid': refid,
-			}
+			raise Unauthorized('verification failed.', logdata={ 'refid': refid })
 
 
 	def create(self, handle, name, email, password) :
 		"""
-		returns: None on success, otherwise error dict
+		returns user data on success otherwise raises Unauthorized
 		"""
 		try :
 			email_hash = self._hash_email(email)
@@ -228,7 +218,7 @@ class Authenticator :
 				VALUES
 				(%s, %s);
 
-				INSERT INTO user_login
+				INSERT INTO kheina.auth.user_login
 				(user_id, email_hash, password, secret)
 				SELECT
 				user_id, %s, %s, %s
@@ -251,7 +241,4 @@ class Authenticator :
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			return {
-				'error': 'creation failed.',
-				'refid': refid,
-			}
+			raise Unauthorized('user creation failed.', logdata={ 'refid': refid })
