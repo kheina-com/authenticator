@@ -1,4 +1,5 @@
-from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, UniqueViolation, InFailedSqlTransaction
+from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError
+from psycopg2.errors import UniqueViolation, InFailedSqlTransaction
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
 from kh_common.http_error import Unauthorized, BadRequest
@@ -26,7 +27,7 @@ class Authenticator :
 				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
 
 			except Exception as e :
-				self.logger.critical({'message': f'failed to connect to database as user {credentials["user"]}!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
+				self.logger.critical({ 'message': f'failed to connect to database as user {credentials["user"]}!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
 
 			else :
 				self.logger.info(f'connected to database as user {credentials["user"]}')
