@@ -1,9 +1,9 @@
 from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, errors
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
+from base64 import urlsafe_b64encode, urlsafe_b64decode
 from kh_common.http_error import Unauthorized
 from argon2 import PasswordHasher as Argon2
-from base64 import b64encode, b64decode
 from traceback import format_tb
 from hashlib import sha3_512
 from uuid import uuid4
@@ -97,7 +97,7 @@ class Authenticator :
 		}
 		"""
 		try :
-			key_load = b64decode(key)
+			key_load = urlsafe_b64decode(key)
 			ref_id = key_load[:16].hex()
 			key_load = key_load[16:]
 			data = self._query("""
@@ -199,7 +199,7 @@ class Authenticator :
 				'user': handle,
 				'name': name,
 				'icon': post_icon,
-				'key': b64encode(key).decode() if key else None,
+				'key': urlsafe_b64encode(key).decode() if key else None,
 			}
 		except:
 			refid = uuid4().hex
