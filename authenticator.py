@@ -101,7 +101,6 @@ class Authenticator :
 			"user_id": int,
 			"user": str,
 			"name": str,
-			"icon": str,
 			"key": str,
 		}
 		"""
@@ -110,12 +109,10 @@ class Authenticator :
 			ref_id = key_load[:16].hex()
 			key_load = key_load[16:]
 			data = self._query("""
-				SELECT user_auth.user_id, key, salt, secret, handle, display_name, post_id
+				SELECT user_auth.user_id, key, salt, secret, handle, display_name
 				FROM kheina.auth.user_auth
 					INNER JOIN users
 						ON users.user_id = user_auth.user_id
-					LEFT JOIN user_icon
-						ON user_auth.user_id = user_icon.user_id
 				WHERE ref_id = %s AND expires > NOW();
 				""",
 				(ref_id,),
@@ -124,14 +121,13 @@ class Authenticator :
 			if not data :
 				raise Unauthorized('verification failed.')
 
-			user_id, key_hash, salt, secret, handle, display_name, post_id = data[0]
+			user_id, key_hash, salt, secret, handle, display_name = data[0]
 
 			if compare_digest(key_hash, self._hash_key(key_load, salt, secret)) :
 				return {
 					'user_id': user_id,
 					'user': handle,
 					'name': display_name,
-					'icon': post_id,
 					'key': key,
 				}
 			else :
@@ -150,19 +146,16 @@ class Authenticator :
 			"user_id": int,
 			"user": str,
 			"name": str,
-			"icon": str,
 			"key": str,
 		}
 		"""
 		try :
 			email_hash = self._hash_email(email)
 			data = self._query("""
-				SELECT user_login.user_id, password, secret, handle, display_name, post_id
+				SELECT user_login.user_id, password, secret, handle, display_name
 				FROM kheina.auth.user_login
 					INNER JOIN users
 						ON users.user_id = user_login.user_id
-					LEFT JOIN user_icon
-						ON user_login.user_id = user_icon.user_id
 				WHERE email_hash = %s;
 				""",
 				(Binary(email_hash),),
@@ -171,7 +164,7 @@ class Authenticator :
 			if not data :
 				raise Unauthorized('verification failed.')
 
-			user_id, password_hash, secret, handle, name, post_icon = data[0]
+			user_id, password_hash, secret, handle, name = data[0]
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
@@ -208,7 +201,6 @@ class Authenticator :
 				'user_id': user_id,
 				'user': handle,
 				'name': name,
-				'icon': post_icon,
 				'key': urlsafe_b64encode(key).decode() if key else None,
 			}
 
@@ -250,7 +242,6 @@ class Authenticator :
 				'user_id': data[0][0],
 				'user': handle,
 				'name': name,
-				'icon': None,
 				'key': None,
 			}
 
