@@ -43,6 +43,8 @@ class Authenticator :
 			cur.execute(sql, params)
 			if commit :
 				self._conn.commit()
+			else :
+				self._conn.rollback()
 			return cur.fetchall() if fetch else None
 		except DataError :
 			e, exc_tb = sys.exc_info()[1:]
