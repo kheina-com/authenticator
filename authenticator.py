@@ -1,8 +1,8 @@
 from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError, errors
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
+from kh_common.http_error import Unauthorized, BadRequest
 from base64 import urlsafe_b64encode, urlsafe_b64decode
-from kh_common.http_error import Unauthorized
 from argon2 import PasswordHasher as Argon2
 from traceback import format_tb
 from hashlib import sha3_512
@@ -233,7 +233,6 @@ class Authenticator :
 				""", (
 					handle, name,
 					Binary(email_hash), Binary(password_hash), secret,
-					handle,
 				),
 				commit=True,
 				fetch=True,
@@ -245,7 +244,11 @@ class Authenticator :
 				'icon': None,
 				'key': None,
 			}
+
+		except psycopg2.errors.UniqueViolation :
+			raise BadRequest('a user already exists with that handle or email.')
+
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise Unauthorized('user creation failed.', logdata={ 'refid': refid })
+			raise InternalServerError('user creation failed.', logdata={ 'refid': refid })
