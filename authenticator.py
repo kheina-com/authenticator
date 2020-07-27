@@ -22,8 +22,12 @@ class Authenticator :
 	def _connect(self) :
 		with open('credentials/postgres.json') as credentials :
 			credentials = json.load(credentials)
-			self.logger.info(f'connecting to database as user {credentials["user"]}')
-			self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
+			try :
+				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
+			except Exception as e :
+				self.logger.critical({'message': f'failed to connect to database as user {credentials["user"]}!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
+			else :
+				self.logger.info(f'connected to database as user {credentials["user"]}')
 
 
 	def _initArgon2(self) :
@@ -103,7 +107,7 @@ class Authenticator :
 						ON users.user_id = user_auth.user_id
 					LEFT JOIN user_icon
 						ON user_auth.user_id = user_icon.user_id
-				WHERE ref_id = %s;
+				WHERE ref_id = %s AND expires > NOW();
 				""",
 				(ref_id,),
 				fetch=True,
@@ -182,8 +186,7 @@ class Authenticator :
 					(user_id, key, salt, secret)
 					VALUES
 					(%s, %s, %s, %s)
-					RETURNING
-					ref_id;
+					RETURNING ref_id;
 					""",
 					(user_id, Binary(key_hash), Binary(key_salt), key_secret),
 					commit=True,
@@ -213,18 +216,18 @@ class Authenticator :
 			secret = randbelow(len(self._secrets))
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
 			data = self._query("""
-				INSERT INTO users
-				(handle, display_name)
-				VALUES
-				(%s, %s);
-
-				INSERT INTO kheina.auth.user_login
-				(user_id, email_hash, password, secret)
-				SELECT
-				user_id, %s, %s, %s
-				FROM users
-				WHERE handle = %s
-				RETURNING user_id;
+					WITH new_user AS (
+						INSERT INTO users
+						(handle, display_name)
+						VALUES (%s, %s)
+						RETURNING user_id
+					)
+					INSERT INTO kheina.auth.user_login
+					(user_id, email_hash, password, secret)
+					SELECT
+					new_user.user_id, %s, %s, %s
+					FROM new_user
+					RETURNING user_id;
 				""", (
 					handle, name,
 					Binary(email_hash), Binary(password_hash), secret,
@@ -237,6 +240,8 @@ class Authenticator :
 				'user_id': data[0][0],
 				'user': handle,
 				'name': name,
+				'icon': None,
+				'key': None,
 			}
 		except :
 			refid = uuid4().hex
