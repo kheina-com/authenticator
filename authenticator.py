@@ -1,5 +1,5 @@
-from psycopg2 import connect as dbConnect, Binary, IntegrityError, DataError
-from psycopg2.errors import UniqueViolation, InFailedSqlTransaction
+from psycopg2.errors import UniqueViolation, ConnectionException
+from psycopg2 import Binary, connect as dbConnect
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
 from kh_common.http_error import Unauthorized, BadRequest
@@ -50,13 +50,7 @@ class Authenticator :
 				self._conn.rollback()
 			return cur.fetchall() if fetch else None
 
-		except DataError :
-			e, exc_tb = sys.exc_info()[1:]
-			self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
-			# now attempt to recover by rolling back
-			self._conn.rollback()
-
-		except (IntegrityError, InFailedSqlTransaction) :
+		except ConnectionException :
 			self._connect()
 			if maxretry > 1 :
 				e, exc_tb = sys.exc_info()[1:]
@@ -65,6 +59,13 @@ class Authenticator :
 			else :
 				self.logger.exception({ })
 				raise
+
+		except :
+			e, exc_tb = sys.exc_info()[1:]
+			self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
+			# now attempt to recover by rolling back
+			self._conn.rollback()
+			raise
 
 		finally :
 			cur.close()
