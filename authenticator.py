@@ -24,8 +24,10 @@ class Authenticator :
 			credentials = json.load(credentials)
 			try :
 				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
+
 			except Exception as e :
 				self.logger.critical({'message': f'failed to connect to database as user {credentials["user"]}!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
+
 			else :
 				self.logger.info(f'connected to database as user {credentials["user"]}')
 
@@ -46,11 +48,13 @@ class Authenticator :
 			else :
 				self._conn.rollback()
 			return cur.fetchall() if fetch else None
+
 		except DataError :
 			e, exc_tb = sys.exc_info()[1:]
 			self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
 			# now attempt to recover by rolling back
 			self._conn.rollback()
+
 		except (IntegrityError, errors.InFailedSqlTransaction) :
 			self._connect()
 			if maxretry > 1 :
@@ -60,6 +64,7 @@ class Authenticator :
 			else :
 				self.logger.exception({ })
 				raise
+
 		finally :
 			cur.close()
 
@@ -129,10 +134,11 @@ class Authenticator :
 				}
 			else :
 				raise Unauthorized('verification failed.')
+
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise Unauthorized('verification failed.', logdata={ 'refid': refid })
+			raise InternalServerError('verification failed.', logdata={ 'refid': refid })
 
 
 	def verifyLogin(self, email, password, generateKey=False) :
@@ -162,8 +168,8 @@ class Authenticator :
 			)
 			if not data :
 				raise Unauthorized('verification failed.')
-			user_id, password_hash, secret, handle, name, post_icon = data[0]
 
+			user_id, password_hash, secret, handle, name, post_icon = data[0]
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
@@ -203,15 +209,16 @@ class Authenticator :
 				'icon': post_icon,
 				'key': urlsafe_b64encode(key).decode() if key else None,
 			}
+
 		except:
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise Unauthorized('verification failed.', logdata={ 'refid': refid })
+			raise InternalServerError('verification failed.', logdata={ 'refid': refid })
 
 
 	def create(self, handle, name, email, password) :
 		"""
-		returns user data on success otherwise raises Unauthorized
+		returns user data on success otherwise raises Bad Request
 		"""
 		try :
 			email_hash = self._hash_email(email)
