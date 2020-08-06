@@ -25,8 +25,8 @@ CREATE TABLE kheina.auth.token_keys (
 	public_key BYTEA NOT NULL,
 	private_key BYTEA NOT NULL,
 	secret SMALLINT NOT NULL,
-	issued TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	expires TIMESTAMPTZ NOT NULL DEFAULT NOW() + interval '30 days',
+	issued TIMESTAMPTZ NOT NULL DEFAULT now(),
+	expires TIMESTAMPTZ NOT NULL DEFAULT current_date + interval '30 days',
 	PRIMARY KEY (algorithm, key_id)
 );
 CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.token_keys (algorithm, issued, expires);
@@ -35,7 +35,7 @@ CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.toke
 
 def verifyToken(token) :
 	load, signature = tuple(map(b64decode, token.split('.')))
-	version, algorithm, key_id, expires, guid, data = load.split(b'.', 4)
+	version, algorithm, key_id, expires, guid, data = load.split(b'.', 5)
 	version = version.decode()
 	algorithm = algorithm.decode()
 	key_id = int.from_bytes(b64decode(key_id), 'big')
@@ -137,7 +137,7 @@ class Authenticator :
 
 	def _generate_token(self, token_data: dict) :
 		issued = time()
-		expires = issued + self._token_expires_interval
+		expires = self._calc_timestamp(issued) + self._token_expires_interval
 
 		if self._active_private_key['start'] <= issued < self._active_private_key['end'] :
 			private_key = self._active_private_key['key']
@@ -187,11 +187,11 @@ class Authenticator :
 				)
 
 				# insert the new key into db
-				self._query("""
+				data = self._query("""
 					INSERT INTO kheina.auth.token_keys
-					(public_key, private_key, secret, algorithm, issued, expires)
+					(public_key, private_key, secret, algorithm)
 					VALUES
-					(%s, %s, %s, %s, to_timestamp(%s), to_timestamp(%s))
+					(%s, %s, %s, %s)
 					RETURNING key_id;
 					""",
 					(
@@ -210,7 +210,11 @@ class Authenticator :
 				key_id = data[0]
 
 			# put the new key into the public keyring
-			self._public_keyring[(self._token_algorithm, key_id)] = b64encode(public_key).decode()
+			self._public_keyring[(self._token_algorithm, key_id)] = {
+				'key': b64encode(public_key).decode(),
+				'issued': issued,
+				'expires': expires,
+			}
 
 		load = b'.'.join([
 			self._token_version.encode(),
@@ -252,13 +256,15 @@ class Authenticator :
 			if not data :
 				raise NotFound('Public key does not exist for given algorithm and key_id.')
 
-			public_key = bytes.decode(b64encode(data[0]))
+			public_key = self._public_keyring[lookup_key] = {
+				'key': b64encode(data[0]).decode(),
+				'issued': issued,
+				'expires': expires,
+			}
 
 		return {
 			'algorithm': algorithm,
-			'issued': data[1],
-			'expires': data[2],
-			'public_key': public_key,
+			**public_key,
 		}
 
 
@@ -292,7 +298,7 @@ class Authenticator :
 			if not data :
 				raise Unauthorized('verification failed.')
 
-			user_id, password_hash, secret, handle, name = data[0]
+			user_id, password_hash, secret, handle, name = data
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
