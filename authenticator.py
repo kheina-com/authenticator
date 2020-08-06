@@ -65,6 +65,7 @@ class Authenticator :
 		self._active_private_key = {
 			'key': None,
 			'algorithm': None,
+			'issued': 0,
 			'start': 0,
 			'end': 0,
 		}
@@ -141,6 +142,7 @@ class Authenticator :
 
 		if self._active_private_key['start'] <= issued < self._active_private_key['end'] :
 			private_key = self._active_private_key['key']
+			issued = self._active_private_key['issued']
 
 		else :
 			# initialize a new private key
@@ -149,13 +151,14 @@ class Authenticator :
 			self._active_private_key = {
 				'key': None,
 				'algorithm': self._token_algorithm,
+				'issued': 0,
 				'start': start,
 				'end': end,
 			}
 
 			# look for an existing private key in the db
 			data = self._query("""
-				SELECT private_key, secret, key_id
+				SELECT private_key, secret, key_id, issued, expires
 				FROM kheina.auth.token_keys
 				WHERE
 					algorithm = %s
@@ -170,6 +173,8 @@ class Authenticator :
 				pk_load = data[0]
 				secret = data[1]
 				key_id = data[2]
+				issued = self._active_private_key['issued'] = data[3].timestamp()
+				expires = data[4].timestamp()
 
 				private_key = self._active_private_key['key'] = serialization.load_der_private_key(pk_load, self._secrets[secret], crypto_backend())
 				public_key = private_key.public_key().public_bytes(
@@ -192,7 +197,7 @@ class Authenticator :
 					(public_key, private_key, secret, algorithm)
 					VALUES
 					(%s, %s, %s, %s)
-					RETURNING key_id;
+					RETURNING key_id, issued, expires;
 					""",
 					(
 						public_key,
@@ -208,6 +213,8 @@ class Authenticator :
 					fetch_one=True,
 				)
 				key_id = data[0]
+				issued = self._active_private_key['issued'] = data[1].timestamp()
+				expires = data[2].timestamp()
 
 			# put the new key into the public keyring
 			self._public_keyring[(self._token_algorithm, key_id)] = {
