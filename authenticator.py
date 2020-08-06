@@ -1,4 +1,4 @@
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from kh_common.http_error import Unauthorized, BadRequest, InternalServerError
 from cryptography.hazmat.backends import default_backend as crypto_backend
 from psycopg2.errors import UniqueViolation, ConnectionException
@@ -18,10 +18,13 @@ import sys
 
 
 def verifyToken(token) :
-	load, signature = data.split(b'.')
-	user_id, expires = b64decode(load).split(b'.')
+	load, signature = token.split(b'.')
+	version, algorithm, expires, guid, data = b64decode(load).split(b'.', 4)
 
-	public_key = fetchPublicKey(expires)
+	# fetchPublicKey = lambda expires : a.fetchPublicKey(expires).get('public_key')
+	public_key = Ed25519PublicKey.from_public_bytes(
+		b64decode(fetchPublicKey(version, algorithm, expires))
+	)
 	public_key.verify(b64decode(signature), load)
 
 	return {
@@ -36,8 +39,10 @@ class Authenticator :
 		self._connect()
 		self._initArgon2()
 		self._key_refresh_interval = 60 * 60 * 24  # 24 hours
-		self._key_expires_interval = 60 * 60 * 24 * 30  # 30 days
+		self._token_expires_interval = 60 * 60 * 24 * 30  # 30 days
 		self._private_keys = { }
+		self._token_version = '1'
+		self._token_algorithm = 'ed25519'
 
 
 	def _connect(self) :
@@ -96,16 +101,12 @@ class Authenticator :
 		return sha3_512(email.encode() + self._secrets[0]).digest()
 
 
-	def _hash_key(self, key, salt, secret) :
-		return sha3_512(key + salt + self._secrets[secret]).digest()
-
-
 	def _calc_expires(self, timestamp) :
 		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval)
 
 
-	def _generate_key(self, user_id) :
-		expires = self._calc_expires(time()) + self._key_expires_interval
+	def _generate_token(self, data) :
+		expires = self._calc_expires(time()) + self._token_expires_interval
 		
 		if expires in self._private_keys :
 			private_key = self._private_keys[expires]
@@ -117,7 +118,7 @@ class Authenticator :
 				FROM kheina.auth.token_key
 				WHERE algorithm = %s AND expires = to_timestamp(%s);
 				""",
-				('ed25519', expires),
+				(self._token_algorithm, expires),
 				fetch=True,
 			)
 
@@ -139,26 +140,37 @@ class Authenticator :
 					(%s, %s, %s, %s, to_timestamp(%s));
 					""",
 					(
-						'ed25519',
-						private_key.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw),
-						private_key.private_bytes(encoding=serialization.Encoding.DER, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.BestAvailableEncryption(self._secrets[secret])),
+						self._token_algorithm,
+						private_key.public_key().public_bytes(
+							encoding=serialization.Encoding.Raw,
+							format=serialization.PublicFormat.Raw
+						),
+						private_key.private_bytes(
+							encoding=serialization.Encoding.DER,
+							format=serialization.PrivateFormat.PKCS8,
+							encryption_algorithm=serialization.BestAvailableEncryption(self._secrets[secret])
+						),
 						secret,
 						expires,
 					),
 					commit=True,
 				)
 
-		load = b64encode(f'{user_id}.{expires}'.encode())
-		load = load + b'.' + b64encode(private_key.sign(load))
+		load = b64encode(f'{self._token_version}.{self._token_algorithm}.{expires}.{uuid4().hex}.{json.dumps(data)}'.encode())
+		token = load + b'.' + b64encode(private_key.sign(load))
 
 		return {
-			'algorithm': 'ed25519',
+			'version': self._token_version,
+			'algorithm': self._token_algorithm,
 			'expires': expires,
-			'key': load.decode(),
+			'token': token.decode(),
 		}
 
 	
-	def fetchPublicKey(self, expires, algorithm='ed25519') :
+	def fetchPublicKey(self, expires, algorithm=self._token_algorithm) :
+		if expires < time() :
+			raise Unauthorized('Token has expired.')
+
 		expires = self._calc_expires(expires)
 		public_key = None
 
@@ -182,7 +194,9 @@ class Authenticator :
 
 		if public_key :
 			return {
-				'public_key': bytes.decode(b64encode(public_key))
+				'algorithm': algorithm,
+				'expires': expires,
+				'public_key': bytes.decode(b64encode(public_key)),
 			}
 
 		raise InternalServerError('Public key does not exist for given expire and algorithm.')
@@ -193,14 +207,14 @@ class Authenticator :
 		return self._conn.closed
 
 
-	def login(self, email, password, generateKey=False) :
+	def login(self, email, password, generateToken=False) :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
 			"user_id": int,
 			"user": str,
 			"name": str,
-			"key": str,
+			"token": str,
 		}
 		"""
 		try :
@@ -235,13 +249,13 @@ class Authenticator :
 					commit=True,
 				)
 
-			key = self._generate_key(user_id) if generateKey else None
+			token = self._generate_token(user_id) if generateToken else None
 
 			return {
 				'user_id': user_id,
 				'user': handle,
 				'name': name,
-				'key': key,
+				'token': token,
 			}
 
 		except:
@@ -282,7 +296,7 @@ class Authenticator :
 				'user_id': data[0][0],
 				'user': handle,
 				'name': name,
-				'key': None,
+				'token': None,
 			}
 
 		except UniqueViolation :

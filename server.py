@@ -28,20 +28,28 @@ async def JSONErrorHandler(req) :
 	)
 
 
-async def v1authorizeKey(req) :
+async def v1publicKey(req) :
 	"""
-	{ "key": str }
+	{
+		"version": Optional[str],
+		"algorithm": Optional[str],
+		"expires": float
+	}
 	"""
 	try :
 		requestJson = await req.json()
 
-		key = requestJson.get('key')
-		if key :
-			return UJSONResponse(authServer.verifyKey(key))
-		
+		expires = requestJson.get('expires')
+		algorithm = requestJson.get('algorithm')
+		version = requestJson.get('version')
+		if expires :
+			if algorithm :
+				return UJSONResponse(authServer.fetchPublicKey(expires, algorithm))
+			return UJSONResponse(authServer.fetchPublicKey(expires))
+
 		else :
 			return UJSONResponse({
-				'error': 'no key provided.',
+				'error': 'no expires provided.',
 			})
 
 	except :
@@ -53,7 +61,7 @@ async def v1authorizeLogin(req) :
 	{
 		"email": str,
 		"password": str,
-		"generate_key": bool
+		"generate_token": Optional[bool]
 	}
 	"""
 	try :
@@ -61,10 +69,10 @@ async def v1authorizeLogin(req) :
 
 		email = requestJson.get('email')
 		password = requestJson.get('password')
-		newKey = requestJson.get('generate_key')
+		newToken = requestJson.get('generate_token')
 
 		if email and password :
-			return UJSONResponse(authServer.verifyLogin(email, password, generateKey=newKey))
+			return UJSONResponse(authServer.verifyLogin(email, password, generateToken=newToken))
 		
 		else :
 			return UJSONResponse({
@@ -107,18 +115,20 @@ async def v1createUser(req) :
 async def v1help(req) :
 	return UJSONResponse({
 		'/v1/key': {
-			'key': 'str'
+			'version': 'Optional[str]',
+			'algorithm': 'Optional[str]',
+			'expires': 'float',
 		},
 		'/v1/login': {
 			'email': 'str',
 			'password': 'str',
-			'generate_key': 'Optional[bool]'
+			'generate_token': 'Optional[bool]',
 		},
 		'/v1/create': {
 			'name': 'str',
 			'handle': 'str',
 			'email': 'str',
-			'password': 'str'
+			'password': 'str',
 		},
 	})
 
