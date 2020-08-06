@@ -1,13 +1,16 @@
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.backends import default_backend as crypto_backend
 from psycopg2.errors import UniqueViolation, ConnectionException
-from psycopg2 import Binary, connect as dbConnect
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
 from kh_common.http_error import Unauthorized, BadRequest
-from base64 import urlsafe_b64encode, urlsafe_b64decode
+from cryptography.hazmat.primitives import serialization
+from kh_common.base64 import b64encode, b64decode
+from psycopg2 import Binary, connect as dbConnect
 from argon2 import PasswordHasher as Argon2
 from traceback import format_tb
-from hashlib import sha3_512
 from uuid import uuid4
+from math import floor
 import ujson as json
 import sys
 
@@ -18,6 +21,9 @@ class Authenticator :
 		self.logger = logging.getLogger('auth')
 		self._connect()
 		self._initArgon2()
+		self._key_refresh_interval = 60 * 60 * 24  # 24 hours
+		self._key_expires_interval = 60 * 60 * 24 * 30  # 30 days
+		self._private_keys = { }
 
 
 	def _connect(self) :
@@ -27,10 +33,10 @@ class Authenticator :
 				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
 
 			except Exception as e :
-				self.logger.critical({ 'message': f'failed to connect to database as user {credentials["user"]}!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
+				self.logger.critical({ 'message': f'failed to connect to database!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
 
 			else :
-				self.logger.info(f'connected to database as user {credentials["user"]}')
+				self.logger.info(f'connected to database.')
 
 
 	def _initArgon2(self) :
@@ -80,63 +86,97 @@ class Authenticator :
 		return sha3_512(key + salt + self._secrets[secret]).digest()
 
 
-	def _generate_key(self) :
-		# 44 for a round base64 character when paired with uuid
-		key = token_bytes(44)
-		salt = token_bytes(44)
-		secret = randbelow(len(self._secrets))
-		return key, salt, secret, self._hash_key(key, salt, secret)
+	def _calc_expires(self, timestamp) :
+		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval) + self._key_expires_interval
+
+
+	def _generate_key(self, user_id) :
+		expires = self._calc_expires(time())
+		
+		if expires in self._private_keys :
+			private_key = self._private_keys[expires]
+
+		else :
+			# look for an existing public/private key in the db
+			data = self._query("""
+				SELECT private_key, secret
+				FROM kheina.auth.token_key
+				WHERE algorithm = %s AND expires = to_timestamp(%s);
+				""",
+				('ed25519', expires),
+				fetch=True,
+			)
+
+			if data :
+				pk_load = data[0][0]
+				secret = data[0][1]
+				private_key = self._private_keys[expires] = serialization.load_der_private_key(pk_load, self._secrets[secret], crypto_backend())
+				del data, pk_load, secret
+
+			else :
+				secret = randbelow(len(self._secrets))
+				private_key = self._private_keys[expires] = Ed25519PrivateKey.generate()
+
+				# insert the new key into db
+				self._query("""
+					INSERT INTO kheina.auth.token_key
+					(algorithm, public_key, private_key, secret, expires)
+					VALUES
+					(%s, %s, %s, %s, to_timestamp(%s));
+					""",
+					(
+						'ed25519',
+						private_key.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw),
+						private_key.private_bytes(encoding=serialization.Encoding.DER, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.BestAvailableEncryption(self._secrets[secret])),
+						secret,
+						expires,
+					),
+					commit=True,
+				)
+
+		load = b64encode(f'{user_id}.{expires}'.encode())
+		load = load + b'.' + b64encode(private_key.sign(load))
+
+		return {
+			'algorithm': 'ed25519',
+			'user_id': user_id,
+			'key': load,
+		}
+
+	
+	def fetchPublicKey(self, expires, algorithm='ed25519') :
+		expires = self._calc_expires(expires)
+		public_key = None
+
+		if expires in self._private_keys :
+			public_key = self._private_keys[expires].public_key().public_bytes(
+				encoding=serialization.Encoding.Raw,
+				format=serialization.PublicFormat.Raw,
+			)
+
+		else :
+			data = self._query("""
+				SELECT public_key
+				FROM kheina.auth.token_key
+				WHERE algorithm = %s AND expires = to_timestamp(%s);
+				""",
+				(algorithm, expires),
+				fetch=True,
+			)
+			if data :
+				public_key = data[0][0]
+
+		if public_key :
+			return {
+				'public_key': bytes.decode(b64encode(public_key))
+			}
+
+		raise IndexError('Public key does not exist for given expire and algorithm.')
 
 
 	def close(self) :
 		self._conn.close()
 		return self._conn.closed
-
-
-	def verifyKey(self, key) :
-		"""
-		key = b64encode(ref_id + key_hash)
-		returns user data on success otherwise raises Unauthorized
-		{
-			"user_id": int,
-			"user": str,
-			"name": str,
-			"key": str,
-		}
-		"""
-		try :
-			key_load = urlsafe_b64decode(key)
-			ref_id = key_load[:16].hex()
-			key_load = key_load[16:]
-			data = self._query("""
-				SELECT user_auth.user_id, key, salt, secret, handle, display_name
-				FROM kheina.auth.user_auth
-					INNER JOIN users
-						ON users.user_id = user_auth.user_id
-				WHERE ref_id = %s AND expires > NOW();
-				""",
-				(ref_id,),
-				fetch=True,
-			)
-			if not data :
-				raise Unauthorized('verification failed.')
-
-			user_id, key_hash, salt, secret, handle, display_name = data[0]
-
-			if compare_digest(key_hash, self._hash_key(key_load, salt, secret)) :
-				return {
-					'user_id': user_id,
-					'user': handle,
-					'name': display_name,
-					'key': key,
-				}
-			else :
-				raise Unauthorized('verification failed.')
-
-		except :
-			refid = uuid4().hex
-			self.logger.exception({ 'refid': refid })
-			raise InternalServerError('verification failed.', logdata={ 'refid': refid })
 
 
 	def verifyLogin(self, email, password, generateKey=False) :
@@ -181,27 +221,13 @@ class Authenticator :
 					commit=True,
 				)
 
-			key = None
-			if generateKey :
-				key, key_salt, key_secret, key_hash = self._generate_key()
-				data = self._query("""
-					INSERT INTO kheina.auth.user_auth
-					(user_id, key, salt, secret)
-					VALUES
-					(%s, %s, %s, %s)
-					RETURNING ref_id;
-					""",
-					(user_id, Binary(key_hash), Binary(key_salt), key_secret),
-					commit=True,
-					fetch=True,
-				)
-				key = bytes.fromhex(data[0][0].replace('-', '')) + key
+			key = self._generate_key(user_id) if generateKey else None
 
 			return {
 				'user_id': user_id,
 				'user': handle,
 				'name': name,
-				'key': urlsafe_b64encode(key).decode() if key else None,
+				'key': key,
 			}
 
 		except:
