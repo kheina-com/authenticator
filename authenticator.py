@@ -18,7 +18,7 @@ import sys
 
 
 def verifyToken(token) :
-	load, signature = token.split(b'.')
+	load, signature = tuple(map(b64decode, token.split('.')))
 	version, algorithm, expires, guid, data = b64decode(load).split(b'.', 4)
 
 	# fetchPublicKey = lambda expires : a.fetchPublicKey(expires).get('public_key')
@@ -105,9 +105,9 @@ class Authenticator :
 		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval)
 
 
-	def _generate_token(self, data) :
+	def _generate_token(self, token_data) :
 		expires = self._calc_expires(time()) + self._token_expires_interval
-		
+
 		if expires in self._private_keys :
 			private_key = self._private_keys[expires]
 
@@ -156,8 +156,8 @@ class Authenticator :
 					commit=True,
 				)
 
-		load = b64encode(f'{self._token_version}.{self._token_algorithm}.{expires}.{uuid4().hex}.{json.dumps(data)}'.encode())
-		token = load + b'.' + b64encode(private_key.sign(load))
+		load = f'{self._token_version}.{self._token_algorithm}.{expires}.{uuid4().hex}.{json.dumps(token_data)}'.encode()
+		token = b64encode(load) + b'.' + b64encode(private_key.sign(load))
 
 		return {
 			'version': self._token_version,
@@ -167,9 +167,12 @@ class Authenticator :
 		}
 
 	
-	def fetchPublicKey(self, expires, algorithm=self._token_algorithm) :
+	def fetchPublicKey(self, expires, algorithm=None) :
 		if expires < time() :
 			raise Unauthorized('Token has expired.')
+
+		if not algorithm :
+			algorithm = self._token_algorithm
 
 		expires = self._calc_expires(expires)
 		public_key = None
@@ -249,7 +252,7 @@ class Authenticator :
 					commit=True,
 				)
 
-			token = self._generate_token(user_id) if generateToken else None
+			token = self._generate_token({ 'user_id': user_id }) if generateToken else None
 
 			return {
 				'user_id': user_id,

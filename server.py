@@ -43,9 +43,7 @@ async def v1publicKey(req) :
 		algorithm = requestJson.get('algorithm')
 		version = requestJson.get('version')
 		if expires :
-			if algorithm :
-				return UJSONResponse(authServer.fetchPublicKey(expires, algorithm))
-			return UJSONResponse(authServer.fetchPublicKey(expires))
+			return UJSONResponse(authServer.fetchPublicKey(expires, algorithm))
 
 		else :
 			return UJSONResponse({
