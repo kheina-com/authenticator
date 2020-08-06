@@ -133,7 +133,7 @@ class Authenticator :
 
 
 	def _calc_timestamp(self, timestamp) :
-		return self._key_refresh_interval * floor(timestamp / self._key_refresh_interval)
+		return int(self._key_refresh_interval * floor(timestamp / self._key_refresh_interval))
 
 
 	def _generate_token(self, token_data: dict) :
@@ -174,7 +174,7 @@ class Authenticator :
 				secret = data[1]
 				key_id = data[2]
 				issued = self._active_private_key['issued'] = data[3].timestamp()
-				expires = data[4].timestamp()
+				expires = int(data[4].timestamp())
 
 				private_key = self._active_private_key['key'] = serialization.load_der_private_key(pk_load, self._secrets[secret], crypto_backend())
 				public_key = private_key.public_key().public_bytes(
@@ -214,7 +214,7 @@ class Authenticator :
 				)
 				key_id = data[0]
 				issued = self._active_private_key['issued'] = data[1].timestamp()
-				expires = data[2].timestamp()
+				expires = int(data[2].timestamp())
 
 			# put the new key into the public keyring
 			self._public_keyring[(self._token_algorithm, key_id)] = {
@@ -265,8 +265,8 @@ class Authenticator :
 
 			public_key = self._public_keyring[lookup_key] = {
 				'key': b64encode(data[0]).decode(),
-				'issued': issued,
-				'expires': expires,
+				'issued': data[1].timestamp(),
+				'expires': int(data[2].timestamp()),
 			}
 
 		return {
