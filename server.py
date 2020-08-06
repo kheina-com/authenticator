@@ -59,7 +59,8 @@ async def v1authorizeLogin(req) :
 	{
 		"email": str,
 		"password": str,
-		"generate_token": Optional[bool]
+		"generate_token": Optional[bool],
+		"token_data": Optional[dict]
 	}
 	"""
 	try :
@@ -67,10 +68,18 @@ async def v1authorizeLogin(req) :
 
 		email = requestJson.get('email')
 		password = requestJson.get('password')
-		newToken = requestJson.get('generate_token')
+		new_token = requestJson.get('generate_token')
+		token_data = requestJson.get('generate_token')
 
 		if email and password :
-			return UJSONResponse(authServer.verifyLogin(email, password, generateToken=newToken))
+			return UJSONResponse(
+				authServer.login(
+					email,
+					password,
+					generate_token=True if new_token or token_data else None,
+					token_data=token_data
+				)
+			)
 		
 		else :
 			return UJSONResponse({
@@ -121,6 +130,7 @@ async def v1help(req) :
 			'email': 'str',
 			'password': 'str',
 			'generate_token': 'Optional[bool]',
+			'token_data': 'Optional[dict]',
 		},
 		'/v1/create': {
 			'name': 'str',

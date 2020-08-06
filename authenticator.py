@@ -19,17 +19,15 @@ import sys
 
 def verifyToken(token) :
 	load, signature = tuple(map(b64decode, token.split('.')))
-	version, algorithm, expires, guid, data = b64decode(load).split(b'.', 4)
+	version, algorithm, expires, guid, data = load.split(b'.', 4)
 
 	# fetchPublicKey = lambda expires : a.fetchPublicKey(expires).get('public_key')
 	public_key = Ed25519PublicKey.from_public_bytes(
-		b64decode(fetchPublicKey(version, algorithm, expires))
+		b64decode(fetchPublicKey(expires, algorithm))
 	)
-	public_key.verify(b64decode(signature), load)
+	public_key.verify(signature, load)
 
-	return {
-		'user_id': int(user_id),
-	}
+	return json.loads(data)
 
 
 class Authenticator :
@@ -105,7 +103,7 @@ class Authenticator :
 		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval)
 
 
-	def _generate_token(self, token_data) :
+	def _generate_token(self, token_data: dict) :
 		expires = self._calc_expires(time()) + self._token_expires_interval
 
 		if expires in self._private_keys :
@@ -156,7 +154,13 @@ class Authenticator :
 					commit=True,
 				)
 
-		load = f'{self._token_version}.{self._token_algorithm}.{expires}.{uuid4().hex}.{json.dumps(token_data)}'.encode()
+		load = b'.'.join([
+			self._token_version.encode(),
+			self._token_algorithm.encode(),
+			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
+			b64encode(uuid4().bytes),
+			json.dumps(token_data).encode(),
+		])
 		token = b64encode(load) + b'.' + b64encode(private_key.sign(load))
 
 		return {
@@ -210,7 +214,7 @@ class Authenticator :
 		return self._conn.closed
 
 
-	def login(self, email, password, generateToken=False) :
+	def login(self, email, password, generate_token=False, token_data=None) :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
@@ -252,13 +256,19 @@ class Authenticator :
 					commit=True,
 				)
 
-			token = self._generate_token({ 'user_id': user_id }) if generateToken else None
+			if generate_token :
+				if token_data :
+					load = { **token_data, 'user_id': user_id }
+				else :
+					load = { 'user_id': user_id }
+
+				token = self._generate_token(load) if generate_token else None
 
 			return {
 				'user_id': user_id,
 				'user': handle,
 				'name': name,
-				'token': token,
+				'token': token if generate_token else None,
 			}
 
 		except:
