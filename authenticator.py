@@ -1,18 +1,32 @@
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from kh_common.http_error import Unauthorized, BadRequest, InternalServerError
 from cryptography.hazmat.backends import default_backend as crypto_backend
 from psycopg2.errors import UniqueViolation, ConnectionException
 from secrets import token_bytes, randbelow, compare_digest
 from kh_common import getFullyQualifiedClassName, logging
-from kh_common.http_error import Unauthorized, BadRequest
 from cryptography.hazmat.primitives import serialization
 from kh_common.base64 import b64encode, b64decode
 from psycopg2 import Binary, connect as dbConnect
 from argon2 import PasswordHasher as Argon2
 from traceback import format_tb
+from hashlib import sha3_512
 from uuid import uuid4
 from math import floor
+from time import time
 import ujson as json
 import sys
+
+
+def verifyToken(token) :
+	load, signature = data.split(b'.')
+	user_id, expires = b64decode(load).split(b'.')
+
+	public_key = fetchPublicKey(expires)
+	public_key.verify(b64decode(signature), load)
+
+	return {
+		'user_id': int(user_id),
+	}
 
 
 class Authenticator :
@@ -87,11 +101,11 @@ class Authenticator :
 
 
 	def _calc_expires(self, timestamp) :
-		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval) + self._key_expires_interval
+		return self._key_refresh_interval * round(timestamp / self._key_refresh_interval)
 
 
 	def _generate_key(self, user_id) :
-		expires = self._calc_expires(time())
+		expires = self._calc_expires(time()) + self._key_expires_interval
 		
 		if expires in self._private_keys :
 			private_key = self._private_keys[expires]
@@ -139,8 +153,8 @@ class Authenticator :
 
 		return {
 			'algorithm': 'ed25519',
-			'user_id': user_id,
-			'key': load,
+			'expires': expires,
+			'key': load.decode(),
 		}
 
 	
@@ -171,7 +185,7 @@ class Authenticator :
 				'public_key': bytes.decode(b64encode(public_key))
 			}
 
-		raise IndexError('Public key does not exist for given expire and algorithm.')
+		raise InternalServerError('Public key does not exist for given expire and algorithm.')
 
 
 	def close(self) :
@@ -179,7 +193,7 @@ class Authenticator :
 		return self._conn.closed
 
 
-	def verifyLogin(self, email, password, generateKey=False) :
+	def login(self, email, password, generateKey=False) :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
