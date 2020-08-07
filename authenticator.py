@@ -42,9 +42,9 @@ def verifyToken(token) :
 	expires = int.from_bytes(b64decode(expires), 'big')
 	guid = b64decode(guid).hex()
 
-	# fetchPublicKey = lambda expires : a.fetchPublicKey(expires).get('public_key')
+	# fetchPublicKey = lambda expires : a.fetchPublicKey(key_id, algorithm).get('key')
 	public_key = Ed25519PublicKey.from_public_bytes(
-		b64decode(fetchPublicKey(expires, algorithm))
+		b64decode(fetchPublicKey(key_id, algorithm))
 	)
 	public_key.verify(signature, load)
 
@@ -68,6 +68,7 @@ class Authenticator :
 			'issued': 0,
 			'start': 0,
 			'end': 0,
+			'id': 0,
 		}
 
 
@@ -143,6 +144,7 @@ class Authenticator :
 		if self._active_private_key['start'] <= issued < self._active_private_key['end'] :
 			private_key = self._active_private_key['key']
 			issued = self._active_private_key['issued']
+			key_id = self._active_private_key['id']
 
 		else :
 			# initialize a new private key
@@ -154,6 +156,7 @@ class Authenticator :
 				'issued': 0,
 				'start': start,
 				'end': end,
+				'id': 0,
 			}
 
 			# look for an existing private key in the db
@@ -172,7 +175,7 @@ class Authenticator :
 			if data :
 				pk_load = data[0]
 				secret = data[1]
-				key_id = data[2]
+				key_id = self._active_private_key['id'] = data[2]
 				issued = self._active_private_key['issued'] = data[3].timestamp()
 				expires = int(data[4].timestamp())
 
@@ -212,7 +215,7 @@ class Authenticator :
 					commit=True,
 					fetch_one=True,
 				)
-				key_id = data[0]
+				key_id = self._active_private_key['id'] = data[0]
 				issued = self._active_private_key['issued'] = data[1].timestamp()
 				expires = int(data[2].timestamp())
 
@@ -236,6 +239,7 @@ class Authenticator :
 		return {
 			'version': self._token_version,
 			'algorithm': self._token_algorithm,
+			'issued': issued,
 			'expires': expires,
 			'token': token.decode(),
 		}
