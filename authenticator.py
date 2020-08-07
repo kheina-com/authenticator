@@ -165,10 +165,10 @@ class Authenticator :
 				FROM kheina.auth.token_keys
 				WHERE
 					algorithm = %s
-					AND issued BETWEEN current_date
-						AND current_date + interval '1 day';
+					AND issued BETWEEN to_timestamp(%s)
+						AND to_timestamp(%s);
 				""",
-				(self._token_algorithm,),
+				(self._token_algorithm, start, end),
 				fetch_one=True,
 			)
 
