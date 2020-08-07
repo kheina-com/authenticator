@@ -239,7 +239,7 @@ class Authenticator :
 		return {
 			'version': self._token_version,
 			'algorithm': self._token_algorithm,
-			'issued': issued,
+			'issued': time(),  # token issued is always current time
 			'expires': expires,
 			'token': token.decode(),
 		}
