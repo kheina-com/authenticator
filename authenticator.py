@@ -1,5 +1,5 @@
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from kh_common.http_error import Unauthorized, BadRequest, InternalServerError, NotFound
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.backends import default_backend as crypto_backend
 from psycopg2.errors import UniqueViolation, ConnectionException
 from secrets import token_bytes, randbelow, compare_digest
@@ -31,24 +31,6 @@ CREATE TABLE kheina.auth.token_keys (
 );
 CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.token_keys (algorithm, issued, expires);
 """
-
-
-def verifyToken(token) :
-	load, signature = tuple(map(b64decode, token.split('.')))
-	version, algorithm, key_id, expires, guid, data = load.split(b'.', 5)
-	version = version.decode()
-	algorithm = algorithm.decode()
-	key_id = int.from_bytes(b64decode(key_id), 'big')
-	expires = int.from_bytes(b64decode(expires), 'big')
-	guid = b64decode(guid).hex()
-
-	# fetchPublicKey = lambda expires : a.fetchPublicKey(key_id, algorithm).get('key')
-	public_key = Ed25519PublicKey.from_public_bytes(
-		b64decode(fetchPublicKey(key_id, algorithm))
-	)
-	public_key.verify(signature, load)
-
-	return json.loads(data)
 
 
 class Authenticator :

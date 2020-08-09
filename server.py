@@ -69,7 +69,7 @@ async def v1authorizeLogin(req) :
 		email = requestJson.get('email')
 		password = requestJson.get('password')
 		new_token = requestJson.get('generate_token')
-		token_data = requestJson.get('generate_token')
+		token_data = requestJson.get('token_data')
 
 		if email and password :
 			return UJSONResponse(
