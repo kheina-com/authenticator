@@ -23,8 +23,6 @@ CREATE TABLE kheina.auth.token_keys (
 	key_id INT UNIQUE GENERATED ALWAYS AS IDENTITY,
 	algorithm TEXT NOT NULL,
 	public_key BYTEA NOT NULL,
-	private_key BYTEA NOT NULL,
-	secret SMALLINT NOT NULL,
 	issued TIMESTAMPTZ NOT NULL DEFAULT now(),
 	expires TIMESTAMPTZ NOT NULL DEFAULT current_date + interval '30 days',
 	PRIMARY KEY (algorithm, key_id)
@@ -61,7 +59,10 @@ class Authenticator :
 				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
 
 			except Exception as e :
-				self.logger.critical({ 'message': f'failed to connect to database!', 'error': f'{getFullyQualifiedClassName(e)}: {e}' })
+				self.logger.critical({
+					'message': f'failed to connect to database!',
+					'error': f'{getFullyQualifiedClassName(e)}: {e}',
+				})
 
 			else :
 				self.logger.info(f'connected to database.')
@@ -93,7 +94,10 @@ class Authenticator :
 			self._connect()
 			if maxretry > 1 :
 				e, exc_tb = sys.exc_info()[1:]
-				self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
+				self.logger.warning({
+					'message': f'{getFullyQualifiedClassName(e)}: {e}',
+					'stacktrace': format_tb(exc_tb),
+				})
 				return self._query(sql, params, commit, fetch_one, fetch_all, maxretry - 1)
 			else :
 				self.logger.exception({ })
@@ -101,7 +105,10 @@ class Authenticator :
 
 		except :
 			e, exc_tb = sys.exc_info()[1:]
-			self.logger.warning({ 'message': f'{getFullyQualifiedClassName(e)}: {e}', 'stacktrace': format_tb(exc_tb) })
+			self.logger.warning({
+				'message': f'{getFullyQualifiedClassName(e)}: {e}',
+				'stacktrace': format_tb(exc_tb),
+			})
 			# now attempt to recover by rolling back
 			self._conn.rollback()
 			raise
@@ -141,65 +148,30 @@ class Authenticator :
 				'id': 0,
 			}
 
-			# look for an existing private key in the db
-			data = self._query("""
-				SELECT private_key, secret, key_id, issued, expires
-				FROM kheina.auth.token_keys
-				WHERE
-					algorithm = %s
-					AND issued BETWEEN to_timestamp(%s)
-						AND to_timestamp(%s);
-				""",
-				(self._token_algorithm, start, end),
-				fetch_one=True,
+			private_key = self._active_private_key['key'] = Ed25519PrivateKey.generate()
+			public_key = private_key.public_key().public_bytes(
+				encoding=serialization.Encoding.Raw,
+				format=serialization.PublicFormat.Raw,
 			)
 
-			if data :
-				pk_load = data[0]
-				secret = data[1]
-				key_id = self._active_private_key['id'] = data[2]
-				issued = self._active_private_key['issued'] = data[3].timestamp()
-				expires = int(data[4].timestamp())
-
-				private_key = self._active_private_key['key'] = serialization.load_der_private_key(pk_load, self._secrets[secret], crypto_backend())
-				public_key = private_key.public_key().public_bytes(
-					encoding=serialization.Encoding.Raw,
-					format=serialization.PublicFormat.Raw,
-				)
-				del data, pk_load, secret
-
-			else :
-				secret = randbelow(len(self._secrets))
-				private_key = self._active_private_key['key'] = Ed25519PrivateKey.generate()
-				public_key = private_key.public_key().public_bytes(
-					encoding=serialization.Encoding.Raw,
-					format=serialization.PublicFormat.Raw,
-				)
-
-				# insert the new key into db
-				data = self._query("""
-					INSERT INTO kheina.auth.token_keys
-					(public_key, private_key, secret, algorithm)
-					VALUES
-					(%s, %s, %s, %s)
-					RETURNING key_id, issued, expires;
-					""",
-					(
-						public_key,
-						private_key.private_bytes(
-							encoding=serialization.Encoding.DER,
-							format=serialization.PrivateFormat.PKCS8,
-							encryption_algorithm=serialization.BestAvailableEncryption(self._secrets[secret]),
-						),
-						secret,
-						self._token_algorithm,
-					),
-					commit=True,
-					fetch_one=True,
-				)
-				key_id = self._active_private_key['id'] = data[0]
-				issued = self._active_private_key['issued'] = data[1].timestamp()
-				expires = int(data[2].timestamp())
+			# insert the new key into db
+			data = self._query("""
+				INSERT INTO kheina.auth.token_keys
+				(public_key, algorithm)
+				VALUES
+				(%s, %s)
+				RETURNING key_id, issued, expires;
+				""",
+				(
+					public_key,
+					self._token_algorithm,
+				),
+				commit=True,
+				fetch_one=True,
+			)
+			key_id = self._active_private_key['id'] = data[0]
+			issued = self._active_private_key['issued'] = data[1].timestamp()
+			expires = int(data[2].timestamp())
 
 			# put the new key into the public keyring
 			self._public_keyring[(self._token_algorithm, key_id)] = {
