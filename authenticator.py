@@ -245,10 +245,10 @@ class Authenticator :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
-			"user_id": int,
-			"user": str,
-			"name": str,
-			"token": str,
+			'user_id': int,
+			'user': str,
+			'name': str,
+			'token_data': Optional[dict],
 		}
 		"""
 		try :
@@ -295,7 +295,7 @@ class Authenticator :
 				'user_id': user_id,
 				'user': handle,
 				'name': name,
-				'token': token if generate_token else None,
+				'token_data': token if generate_token else None,
 			}
 
 		except:
