@@ -181,14 +181,17 @@ class Authenticator :
 			}
 
 		load = b'.'.join([
-			self._token_version.encode(),
 			self._token_algorithm.encode(),
 			b64encode(key_id.to_bytes(ceil(key_id.bit_length() / 8), 'big')),
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
 			b64encode(uuid4().bytes),
 			json.dumps(token_data).encode(),
 		])
-		token = b64encode(load) + b'.' + b64encode(private_key.sign(load))
+
+		version = self._token_version.encode()
+		content = b64encode(version) + b'.' + b64encode(load)
+		signature = private_key.sign(content)
+		token = content + b'.' + b64encode(signature)
 
 		return {
 			'version': self._token_version,
