@@ -33,21 +33,21 @@ async def v1publicKey(req) :
 	{
 		"version": Optional[str],
 		"algorithm": Optional[str],
-		"expires": float
+		"key_id": int
 	}
 	"""
 	try :
 		requestJson = await req.json()
 
-		expires = requestJson.get('expires')
+		key_id = requestJson.get('key_id')
 		algorithm = requestJson.get('algorithm')
 		version = requestJson.get('version')
-		if expires :
-			return UJSONResponse(authServer.fetchPublicKey(expires, algorithm))
+		if key_id :
+			return UJSONResponse(authServer.fetchPublicKey(key_id, algorithm))
 
 		else :
 			return UJSONResponse({
-				'error': 'no expires provided.',
+				'error': 'no key id provided.',
 			})
 
 	except :
@@ -124,7 +124,7 @@ async def v1help(req) :
 		'/v1/key': {
 			'version': 'Optional[str]',
 			'algorithm': 'Optional[str]',
-			'expires': 'float',
+			'key_id': 'int',
 		},
 		'/v1/login': {
 			'email': 'str',
