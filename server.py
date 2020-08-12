@@ -42,7 +42,7 @@ async def v1publicKey(req) :
 		key_id = requestJson.get('key_id')
 		algorithm = requestJson.get('algorithm')
 		version = requestJson.get('version')
-		if key_id :
+		if key_id is not None :
 			return UJSONResponse(authServer.fetchPublicKey(key_id, algorithm))
 
 		else :
@@ -170,4 +170,4 @@ app = Starlette(
 
 if __name__ == '__main__' :
 	from uvicorn.main import run
-	run(app, host='127.0.0.1', port=80)
+	run(app, host='127.0.0.1', port=5000)
