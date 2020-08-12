@@ -54,7 +54,7 @@ async def v1publicKey(req) :
 		return await JSONErrorHandler(req)
 
 
-async def v1authorizeLogin(req) :
+async def v1login(req) :
 	"""
 	{
 		"email": str,
@@ -156,8 +156,8 @@ middleware = [
 ]
 
 routes = [
-	Route('/v1/key', endpoint=v1authorizeKey, methods=('POST',)),
-	Route('/v1/login', endpoint=v1authorizeLogin, methods=('POST',)),
+	Route('/v1/key', endpoint=v1publicKey, methods=('POST',)),
+	Route('/v1/login', endpoint=v1login, methods=('POST',)),
 	Route('/v1/create', endpoint=v1createUser, methods=('POST',)),
 	Route('/v1/help', endpoint=v1help, methods=('GET',)),
 ]
