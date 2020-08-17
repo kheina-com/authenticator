@@ -201,34 +201,40 @@ class Authenticator :
 			'token': token.decode(),
 		}
 
-	
+
 	def fetchPublicKey(self, key_id, algorithm=None) :
 		if not algorithm :
 			algorithm = self._token_algorithm
 
 		lookup_key = (algorithm, key_id)
 
-		if lookup_key in self._public_keyring :
-			public_key = self._public_keyring[lookup_key]
+		try :
+			if lookup_key in self._public_keyring :
+				public_key = self._public_keyring[lookup_key]
 
-		else :
-			data = self._query("""
-				SELECT public_key, issued, expires
-				FROM kheina.auth.token_keys
-				WHERE algorithm = %s AND key_id = %s;
-				""",
-				lookup_key,
-				fetch_one=True,
-			)
+			else :
+				data = self._query("""
+					SELECT public_key, issued, expires
+					FROM kheina.auth.token_keys
+					WHERE algorithm = %s AND key_id = %s;
+					""",
+					lookup_key,
+					fetch_one=True,
+				)
 
-			if not data :
-				raise NotFound('Public key does not exist for given algorithm and key_id.')
+				if not data :
+					raise NotFound('Public key does not exist for given algorithm and key_id.')
 
-			public_key = self._public_keyring[lookup_key] = {
-				'key': b64encode(data[0]).decode(),
-				'issued': data[1].timestamp(),
-				'expires': int(data[2].timestamp()),
-			}
+				public_key = self._public_keyring[lookup_key] = {
+					'key': b64encode(data[0]).decode(),
+					'issued': data[1].timestamp(),
+					'expires': int(data[2].timestamp()),
+				}
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred while retrieving public key.', logdata={ 'refid': refid })
 
 		return {
 			'algorithm': algorithm,
@@ -301,7 +307,7 @@ class Authenticator :
 		except:
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise InternalServerError('verification failed.', logdata={ 'refid': refid })
+			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
 
 
 	def create(self, handle, name, email, password) :
@@ -345,4 +351,4 @@ class Authenticator :
 		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise InternalServerError('user creation failed.', logdata={ 'refid': refid })
+			raise InternalServerError('an error occurred during user creation.', logdata={ 'refid': refid })
