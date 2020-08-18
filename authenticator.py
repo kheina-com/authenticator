@@ -1,4 +1,4 @@
-from kh_common.http_error import Unauthorized, BadRequest, InternalServerError, NotFound
+from kh_common.http_error import HttpError, Unauthorized, BadRequest, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.backends import default_backend as crypto_backend
 from psycopg2.errors import UniqueViolation, ConnectionException
@@ -161,7 +161,7 @@ class Authenticator :
 				INSERT INTO kheina.auth.token_keys
 				(public_key, signature, algorithm)
 				VALUES
-				(%s, %s)
+				(%s, %s, %s)
 				RETURNING key_id, issued, expires;
 				""",
 				(
@@ -227,7 +227,7 @@ class Authenticator :
 				)
 
 				if not data :
-					raise NotFound('Public key does not exist for given algorithm and key_id.')
+					raise NotFound(f'Public key does not exist for algorithm: {algorithm} and key_id: {key_id}.')
 
 				public_key = self._public_keyring[lookup_key] = {
 					'key': b64encode(data[0]).decode(),
@@ -235,6 +235,9 @@ class Authenticator :
 					'issued': data[2].timestamp(),
 					'expires': int(data[3].timestamp()),
 				}
+
+		except HttpError :
+			raise
 
 		except :
 			refid = uuid4().hex
@@ -309,7 +312,10 @@ class Authenticator :
 				'token_data': token if generate_token else None,
 			}
 
-		except:
+		except HttpError :
+			raise
+
+		except :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
 			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
@@ -324,18 +330,18 @@ class Authenticator :
 			secret = randbelow(len(self._secrets))
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
 			data = self._query("""
-					WITH new_user AS (
-						INSERT INTO users
-						(handle, display_name)
-						VALUES (%s, %s)
-						RETURNING user_id
-					)
-					INSERT INTO kheina.auth.user_login
-					(user_id, email_hash, password, secret)
-					SELECT
-					new_user.user_id, %s, %s, %s
-					FROM new_user
-					RETURNING user_id;
+				WITH new_user AS (
+					INSERT INTO users
+					(handle, display_name)
+					VALUES (%s, %s)
+					RETURNING user_id
+				)
+				INSERT INTO kheina.auth.user_login
+				(user_id, email_hash, password, secret)
+				SELECT
+				new_user.user_id, %s, %s, %s
+				FROM new_user
+				RETURNING user_id;
 				""", (
 					handle, name,
 					Binary(email_hash), Binary(password_hash), secret,
@@ -351,6 +357,9 @@ class Authenticator :
 
 		except UniqueViolation :
 			raise BadRequest('a user already exists with that handle or email.')
+
+		except HttpError :
+			raise
 
 		except :
 			refid = uuid4().hex
