@@ -23,6 +23,7 @@ CREATE TABLE kheina.auth.token_keys (
 	key_id INT UNIQUE GENERATED ALWAYS AS IDENTITY,
 	algorithm TEXT NOT NULL,
 	public_key BYTEA NOT NULL,
+	signature BYTEA NOT NULL,
 	issued TIMESTAMPTZ NOT NULL DEFAULT now(),
 	expires TIMESTAMPTZ NOT NULL DEFAULT current_date + interval '30 days',
 	PRIMARY KEY (algorithm, key_id)
@@ -150,20 +151,22 @@ class Authenticator :
 
 			private_key = self._active_private_key['key'] = Ed25519PrivateKey.generate()
 			public_key = private_key.public_key().public_bytes(
-				encoding=serialization.Encoding.Raw,
-				format=serialization.PublicFormat.Raw,
+				encoding=serialization.Encoding.DER,
+				format=serialization.PublicFormat.SubjectPublicKeyInfo,
 			)
+			signature = private_key.sign(public_key)
 
 			# insert the new key into db
 			data = self._query("""
 				INSERT INTO kheina.auth.token_keys
-				(public_key, algorithm)
+				(public_key, signature, algorithm)
 				VALUES
 				(%s, %s)
 				RETURNING key_id, issued, expires;
 				""",
 				(
 					public_key,
+					signature,
 					self._token_algorithm,
 				),
 				commit=True,
@@ -176,6 +179,7 @@ class Authenticator :
 			# put the new key into the public keyring
 			self._public_keyring[(self._token_algorithm, key_id)] = {
 				'key': b64encode(public_key).decode(),
+				'signature': b64encode(signature).decode(),
 				'issued': issued,
 				'expires': expires,
 			}
@@ -214,7 +218,7 @@ class Authenticator :
 
 			else :
 				data = self._query("""
-					SELECT public_key, issued, expires
+					SELECT public_key, signature, issued, expires
 					FROM kheina.auth.token_keys
 					WHERE algorithm = %s AND key_id = %s;
 					""",
@@ -227,8 +231,9 @@ class Authenticator :
 
 				public_key = self._public_keyring[lookup_key] = {
 					'key': b64encode(data[0]).decode(),
-					'issued': data[1].timestamp(),
-					'expires': int(data[2].timestamp()),
+					'signature': b64encode(data[1]).decode(),
+					'issued': data[2].timestamp(),
+					'expires': int(data[3].timestamp()),
 				}
 
 		except :
@@ -342,7 +347,6 @@ class Authenticator :
 				'user_id': data[0],
 				'user': handle,
 				'name': name,
-				'token': None,
 			}
 
 		except UniqueViolation :
