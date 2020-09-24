@@ -1,20 +1,18 @@
-from kh_common.http_error import HttpError, Unauthorized, BadRequest, InternalServerError, NotFound
+from kh_common.exceptions.http_error import HttpError, Unauthorized, BadRequest, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.backends import default_backend as crypto_backend
-from psycopg2.errors import UniqueViolation, ConnectionException
-from secrets import token_bytes, randbelow, compare_digest
-from kh_common import getFullyQualifiedClassName, logging
 from cryptography.hazmat.primitives import serialization
-from kh_common.base64 import b64encode, b64decode
-from psycopg2 import Binary, connect as dbConnect
+from kh_common.config.credentials import argon2, secrets
 from argon2 import PasswordHasher as Argon2
-from traceback import format_tb
+from psycopg2.errors import UniqueViolation
+from kh_common.base64 import b64encode
+from kh_common.sql import SqlInterface
+from kh_common import logging
+from secrets import randbelow
 from hashlib import sha3_512
 from math import floor, ceil
 from uuid import uuid4
 from time import time
 import ujson as json
-import sys
 
 
 """
@@ -32,9 +30,10 @@ CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.toke
 """
 
 
-class Authenticator :
+class Authenticator(SqlInterface) :
 
 	def __init__(self) :
+		SqlInterface.__init__(self)
 		self.logger = logging.getLogger('auth')
 		self._connect()
 		self._initArgon2()
@@ -53,69 +52,11 @@ class Authenticator :
 		}
 
 
-	def _connect(self) :
-		with open('credentials/postgres.json') as credentials :
-			credentials = json.load(credentials)
-			try :
-				self._conn = dbConnect(dbname='kheina', user=credentials['user'], password=credentials['password'], host=credentials['host'], port='5432')
-
-			except Exception as e :
-				self.logger.critical({
-					'message': f'failed to connect to database!',
-					'error': f'{getFullyQualifiedClassName(e)}: {e}',
-				})
-
-			else :
-				self.logger.info(f'connected to database.')
-
-
 	def _initArgon2(self) :
 		with open('credentials/hashing.json') as credentials :
 			credentials = json.load(credentials)
-			self._argon2 = Argon2(**credentials['argon2'])
-			self._secrets = [bytes.fromhex(salt) for salt in credentials['salts']]
-
-
-	def _query(self, sql, params=(), commit=False, fetch_one=False, fetch_all=False, maxretry=2) :
-		try :
-			cur = self._conn.cursor()
-			cur.execute(sql, params)
-
-			if commit :
-				self._conn.commit()
-			else :
-				self._conn.rollback()
-
-			if fetch_one :
-				return cur.fetchone()
-			elif fetch_all :
-				return cur.fetchall()
-
-		except ConnectionException :
-			self._connect()
-			if maxretry > 1 :
-				e, exc_tb = sys.exc_info()[1:]
-				self.logger.warning({
-					'message': f'{getFullyQualifiedClassName(e)}: {e}',
-					'stacktrace': format_tb(exc_tb),
-				})
-				return self._query(sql, params, commit, fetch_one, fetch_all, maxretry - 1)
-			else :
-				self.logger.exception({ })
-				raise
-
-		except :
-			e, exc_tb = sys.exc_info()[1:]
-			self.logger.warning({
-				'message': f'{getFullyQualifiedClassName(e)}: {e}',
-				'stacktrace': format_tb(exc_tb),
-			})
-			# now attempt to recover by rolling back
-			self._conn.rollback()
-			raise
-
-		finally :
-			cur.close()
+			self._argon2 = Argon2(**argon2)
+			self._secrets = [bytes.fromhex(salt) for salt in secrets]
 
 
 	def _hash_email(self, email) :
@@ -157,7 +98,7 @@ class Authenticator :
 			signature = private_key.sign(public_key)
 
 			# insert the new key into db
-			data = self._query("""
+			data = self.query("""
 				INSERT INTO kheina.auth.token_keys
 				(public_key, signature, algorithm)
 				VALUES
@@ -200,6 +141,7 @@ class Authenticator :
 		return {
 			'version': self._token_version,
 			'algorithm': self._token_algorithm,
+			'key_id': key_id,
 			'issued': time(),  # token issued is always current time
 			'expires': expires,
 			'token': token.decode(),
@@ -217,7 +159,7 @@ class Authenticator :
 				public_key = self._public_keyring[lookup_key]
 
 			else :
-				data = self._query("""
+				data = self.query("""
 					SELECT public_key, signature, issued, expires
 					FROM kheina.auth.token_keys
 					WHERE algorithm = %s AND key_id = %s;
@@ -267,7 +209,7 @@ class Authenticator :
 		"""
 		try :
 			email_hash = self._hash_email(email)
-			data = self._query("""
+			data = self.query("""
 				SELECT user_login.user_id, password, secret, handle, display_name
 				FROM kheina.auth.user_login
 					INNER JOIN users
@@ -288,7 +230,7 @@ class Authenticator :
 
 			if self._argon2.check_needs_rehash(password_hash) :
 				password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
-				self._query("""
+				self.query("""
 					UPDATE kheina.auth.user_login
 					SET password = %s
 					WHERE email_hash = %s;
@@ -312,7 +254,12 @@ class Authenticator :
 				'token_data': token if generate_token else None,
 			}
 
-		except HttpError :
+		except HttpError as e :
+			refid = uuid4().hex
+			self.logger.exception({
+				'refid': refid,
+				**getattr(e, 'logdata', { }),
+			})
 			raise
 
 		except :
@@ -329,9 +276,9 @@ class Authenticator :
 			email_hash = self._hash_email(email)
 			secret = randbelow(len(self._secrets))
 			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
-			data = self._query("""
+			data = self.query("""
 				WITH new_user AS (
-					INSERT INTO users
+					INSERT INTO kheina.public.users
 					(handle, display_name)
 					VALUES (%s, %s)
 					RETURNING user_id
@@ -356,10 +303,9 @@ class Authenticator :
 			}
 
 		except UniqueViolation :
-			raise BadRequest('a user already exists with that handle or email.')
-
-		except HttpError :
-			raise
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise BadRequest('a user already exists with that handle or email.', logdata={ 'refid': refid })
 
 		except :
 			refid = uuid4().hex

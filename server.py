@@ -7,7 +7,7 @@ import time
 import sys
 
 
-logger = logging.getLogger('auth')
+logger = logging.getLogger('auth-server')
 authServer = Authenticator()
 
 
@@ -152,7 +152,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import Route, Mount
 
 middleware = [
-	# Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
+	Middleware(TrustedHostMiddleware, allowed_hosts={ 'localhost', '127.0.0.1', 'auth.kheina.com', 'auth-dev.kheina.com' }),
 ]
 
 routes = [
