@@ -10,6 +10,7 @@ from kh_common import logging
 from secrets import randbelow
 from hashlib import sha3_512
 from math import floor, ceil
+from typing import Any, Dict
 from uuid import uuid4
 from time import time
 import ujson as json
@@ -53,10 +54,8 @@ class Authenticator(SqlInterface) :
 
 
 	def _initArgon2(self) :
-		with open('credentials/hashing.json') as credentials :
-			credentials = json.load(credentials)
-			self._argon2 = Argon2(**argon2)
-			self._secrets = [bytes.fromhex(salt) for salt in secrets]
+		self._argon2 = Argon2(**argon2)
+		self._secrets = [bytes.fromhex(salt) for salt in secrets]
 
 
 	def _hash_email(self, email) :
@@ -197,7 +196,7 @@ class Authenticator(SqlInterface) :
 		return self._conn.closed
 
 
-	def login(self, email, password, generate_token=False, token_data=None) :
+	def login(self, email: str, password: str, generate_token:bool=False, token_data:Dict[str, Any]={ }) :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
@@ -219,14 +218,15 @@ class Authenticator(SqlInterface) :
 				(Binary(email_hash),),
 				fetch_one=True,
 			)
+
 			if not data :
-				raise Unauthorized('verification failed.')
+				raise Unauthorized('login failed.')
 
 			user_id, password_hash, secret, handle, name = data
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
-				raise Unauthorized('verification failed.')
+				raise Unauthorized('login failed.')
 
 			if self._argon2.check_needs_rehash(password_hash) :
 				password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
@@ -254,12 +254,7 @@ class Authenticator(SqlInterface) :
 				'token_data': token if generate_token else None,
 			}
 
-		except HttpError as e :
-			refid = uuid4().hex
-			self.logger.exception({
-				'refid': refid,
-				**getattr(e, 'logdata', { }),
-			})
+		except HttpError :
 			raise
 
 		except :
@@ -268,7 +263,56 @@ class Authenticator(SqlInterface) :
 			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
 
 
-	def create(self, handle, name, email, password) :
+	def changePassword(self, email: str, old_password: str, new_password: str) :
+		"""
+		changes a user's password
+		"""
+		try :
+
+			email_hash = self._hash_email(email)
+			data = self.query("""
+				SELECT user_login.user_id, password, secret, handle, display_name
+				FROM kheina.auth.user_login
+					INNER JOIN users
+						ON users.user_id = user_login.user_id
+				WHERE email_hash = %s;
+				""",
+				(Binary(email_hash),),
+				fetch_one=True,
+			)
+
+			if not data :
+				raise Unauthorized('password change failed.')
+
+			user_id, password_hash, secret, handle, name = data
+			password_hash = password_hash.tobytes().decode()
+
+			if not self._argon2.verify(password_hash, old_password.encode() + self._secrets[secret]) :
+				raise Unauthorized('password change failed.')
+
+			secret = randbelow(len(self._secrets))
+			new_password_hash = self._argon2.hash(new_password.encode() + self._secrets[secret]).encode()
+
+			self.query("""
+				UPDATE kheina.auth.user_login
+				SET password = %s,
+					secret = %s
+				WHERE email_hash = %s;
+				""",
+				(Binary(password_hash), secret, Binary(email_hash)),
+				commit=True,
+			)
+
+		except HttpError :
+			raise
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
+
+
+	def create(self, handle: str, name: str, email: str, password: str) :
 		"""
 		returns user data on success otherwise raises Bad Request
 		"""
