@@ -4,8 +4,10 @@ from cryptography.hazmat.primitives import serialization
 from kh_common.config.credentials import argon2, secrets
 from argon2 import PasswordHasher as Argon2
 from psycopg2.errors import UniqueViolation
+from kh_common.hashing import Hashable
 from kh_common.base64 import b64encode
 from kh_common.sql import SqlInterface
+from models import AuthAlgorithm
 from kh_common import logging
 from secrets import randbelow
 from hashlib import sha3_512
@@ -31,9 +33,10 @@ CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.toke
 """
 
 
-class Authenticator(SqlInterface) :
+class Authenticator(SqlInterface, Hashable) :
 
 	def __init__(self) :
+		Hashable.__init__(self)
 		SqlInterface.__init__(self)
 		self.logger = logging.getLogger('auth')
 		self._connect()
@@ -41,7 +44,7 @@ class Authenticator(SqlInterface) :
 		self._key_refresh_interval = 60 * 60 * 24  # 24 hours
 		self._token_expires_interval = 60 * 60 * 24 * 30  # 30 days
 		self._token_version = '1'
-		self._token_algorithm = 'ed25519'
+		self._token_algorithm = AuthAlgorithm.ed25519
 		self._public_keyring = { }
 		self._active_private_key = {
 			'key': None,
@@ -125,7 +128,7 @@ class Authenticator(SqlInterface) :
 			}
 
 		load = b'.'.join([
-			self._token_algorithm.encode(),
+			self._token_algorithm.name.encode(),
 			b64encode(key_id.to_bytes(ceil(key_id.bit_length() / 8), 'big')),
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
 			b64encode(uuid4().bytes),
@@ -147,9 +150,8 @@ class Authenticator(SqlInterface) :
 		}
 
 
-	def fetchPublicKey(self, key_id, algorithm=None) :
-		if not algorithm :
-			algorithm = self._token_algorithm
+	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) :
+		algorithm = algorithm.name if algorithm self._token_algorithm.name
 
 		lookup_key = (algorithm, key_id)
 
@@ -186,7 +188,7 @@ class Authenticator(SqlInterface) :
 			raise InternalServerError('an error occurred while retrieving public key.', logdata={ 'refid': refid })
 
 		return {
-			'algorithm': algorithm,
+			'algorithm': AuthAlgorithm[algorithm],
 			**public_key,
 		}
 

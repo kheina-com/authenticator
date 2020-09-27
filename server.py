@@ -1,125 +1,51 @@
-from kh_common import logging, getFullyQualifiedClassName
+from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest
+from kh_common.exceptions import jsonErrorHandler
+from kh_common.validation import validatedJson
 from starlette.responses import UJSONResponse
 from authenticator import Authenticator
-from traceback import format_tb
-import ujson as json
-import time
-import sys
 
 
-logger = logging.getLogger('auth-server')
 authServer = Authenticator()
 
 
-async def JSONErrorHandler(req) :
-	exc_type, e, exc_tb = sys.exc_info()
-	status = getattr(e, 'status', 500)
-
-	error = {
-		'error': f'{status} {getFullyQualifiedClassName(e)}: {e}',
-		'status': status,
-		'method': req.method,
-		'url': str(req.url),
-		**getattr(e, 'logdata', { }),
-	}
+@jsonErrorHandler
+@validatedJson
+async def v1PublicKey(req: PublicKeyRequest) :
 	return UJSONResponse(
-		error,
-		status_code=status,
+		authServer.fetchPublicKey(req.key_id, req.algorithm)
 	)
 
 
-async def v1publicKey(req) :
-	"""
-	{
-		"version": Optional[str],
-		"algorithm": Optional[str],
-		"key_id": int
-	}
-	"""
-	try :
-		requestJson = await req.json()
-
-		key_id = requestJson.get('key_id')
-		algorithm = requestJson.get('algorithm')
-		version = requestJson.get('version')
-		if key_id is not None :
-			return UJSONResponse(authServer.fetchPublicKey(key_id, algorithm))
-
-		else :
-			return UJSONResponse({
-				'error': 'no key id provided.',
-			})
-
-	except :
-		return await JSONErrorHandler(req)
+@jsonErrorHandler
+@validatedJson
+async def v1Login(req: LoginRequest) :
+	return UJSONResponse(
+		authServer.login(
+			req.email,
+			req.password,
+			req.generate_token or bool(req.token_data),
+			req.token_data,
+		)
+	)
 
 
-async def v1login(req) :
-	"""
-	{
-		"email": str,
-		"password": str,
-		"generate_token": Optional[bool],
-		"token_data": Optional[dict]
-	}
-	"""
-	try :
-		requestJson = await req.json()
-
-		email = requestJson.get('email')
-		password = requestJson.get('password')
-		new_token = requestJson.get('generate_token')
-		token_data = requestJson.get('token_data')
-
-		if email and password :
-			return UJSONResponse(
-				authServer.login(
-					email,
-					password,
-					generate_token=True if new_token or token_data else None,
-					token_data=token_data
-				)
-			)
-		
-		else :
-			return UJSONResponse({
-				'error': 'email or password missing.',
-			})
-
-	except :
-		return await JSONErrorHandler(req)
+@jsonErrorHandler
+@validatedJson
+async def v1CreateUser(req: CreateUserRequest) :
+	return UJSONResponse(
+		authServer.create(req.handle, req.name, req.email, req.password)
+	)
 
 
-async def v1createUser(req) :
-	"""
-	{
-		"name": str,
-		"handle": str,
-		"email": str,
-		"password": str
-	}
-	"""
-	try :
-		requestJson = await req.json()
-
-		name = requestJson.get('name')
-		handle = requestJson.get('handle')
-		email = requestJson.get('email')
-		password = requestJson.get('password')
-
-		if name and handle and email and password :
-			return UJSONResponse(authServer.create(handle, name, email, password))
-
-		else :
-			return UJSONResponse({
-				'error': 'parameter missing.',
-			})
-
-	except :
-		return await JSONErrorHandler(req)
+@jsonErrorHandler
+@validatedJson
+async def v1ChangePassword(req: ChangePasswordRequest) :
+	return UJSONResponse(
+		authServer.changePassword(req.email, req.old_password, req.new_password)
+	)
 
 
-async def v1help(req) :
+async def v1Help(req) :
 	return UJSONResponse({
 		'/v1/key': {
 			'version': 'Optional[str]',
@@ -137,6 +63,11 @@ async def v1help(req) :
 			'handle': 'str',
 			'email': 'str',
 			'password': 'str',
+		},
+		'/v1/change_password': {
+			'email': 'str',
+			'old_password': 'str',
+			'new_password': 'str',
 		},
 	})
 
@@ -156,10 +87,11 @@ middleware = [
 ]
 
 routes = [
-	Route('/v1/key', endpoint=v1publicKey, methods=('POST',)),
-	Route('/v1/login', endpoint=v1login, methods=('POST',)),
-	Route('/v1/create', endpoint=v1createUser, methods=('POST',)),
-	Route('/v1/help', endpoint=v1help, methods=('GET',)),
+	Route('/v1/key', endpoint=v1PublicKey, methods=('POST',)),
+	Route('/v1/login', endpoint=v1Login, methods=('POST',)),
+	Route('/v1/create', endpoint=v1CreateUser, methods=('POST',)),
+	Route('/v1/change_password', endpoint=v1ChangePassword, methods=('POST',)),
+	Route('/v1/help', endpoint=v1Help, methods=('GET',)),
 ]
 
 app = Starlette(
