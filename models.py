@@ -17,7 +17,7 @@ class PublicKeyRequest(BaseModel) :
 class LoginRequest(BaseModel) :
 	email: str
 	password: str
-	new_token: Optional[bool] = True
+	generate_token: Optional[bool] = True
 	token_data: Optional[Dict[str, Any]] = { }
 
 
