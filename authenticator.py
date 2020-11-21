@@ -1,4 +1,4 @@
-from kh_common.exceptions.http_error import HttpErrorHandler, Unauthorized, BadRequest, InternalServerError, NotFound
+from kh_common.exceptions.http_error import Unauthorized, BadRequest, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from kh_common.config.credentials import argon2, secrets
@@ -150,34 +150,43 @@ class Authenticator(SqlInterface, Hashable) :
 		}
 
 
-	@HttpErrorHandler('fetching public key')
 	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) :
 		algorithm = algorithm.name if algorithm else self._token_algorithm.name
 
 		lookup_key = (algorithm, key_id)
 
-		if lookup_key in self._public_keyring :
-			public_key = self._public_keyring[lookup_key]
+		try :
 
-		else :
-			data = self.query("""
-				SELECT public_key, signature, issued, expires
-				FROM kheina.auth.token_keys
-				WHERE algorithm = %s AND key_id = %s;
-				""",
-				lookup_key,
-				fetch_one=True,
-			)
+			if lookup_key in self._public_keyring :
+				public_key = self._public_keyring[lookup_key]
 
-			if not data :
-				raise NotFound(f'Public key does not exist for algorithm: {algorithm} and key_id: {key_id}.')
+			else :
+				data = self.query("""
+					SELECT public_key, signature, issued, expires
+					FROM kheina.auth.token_keys
+					WHERE algorithm = %s AND key_id = %s;
+					""",
+					lookup_key,
+					fetch_one=True,
+				)
 
-			public_key = self._public_keyring[lookup_key] = {
-				'key': b64encode(data[0]).decode(),
-				'signature': b64encode(data[1]).decode(),
-				'issued': data[2].timestamp(),
-				'expires': int(data[3].timestamp()),
-			}
+				if not data :
+					raise NotFound(f'Public key does not exist for algorithm: {algorithm} and key_id: {key_id}.')
+
+				public_key = self._public_keyring[lookup_key] = {
+					'key': b64encode(data[0]).decode(),
+					'signature': b64encode(data[1]).decode(),
+					'issued': data[2].timestamp(),
+					'expires': int(data[3].timestamp()),
+				}
+
+		except HttpError :
+			raise
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred while retrieving public key.', logdata={ 'refid': refid })
 
 		return {
 			'algorithm': algorithm,
@@ -190,7 +199,6 @@ class Authenticator(SqlInterface, Hashable) :
 		return self._conn.closed
 
 
-	@HttpErrorHandler('logging in')
 	def login(self, email: str, password: str, generate_token:bool=False, token_data:Dict[str, Any]={ }) :
 		"""
 		returns user data on success otherwise raises Unauthorized
@@ -201,40 +209,50 @@ class Authenticator(SqlInterface, Hashable) :
 			'token_data': Optional[dict],
 		}
 		"""
-		email_hash = self._hash_email(email)
-		data = self.query("""
-			SELECT user_login.user_id, password, secret, handle, display_name
-			FROM kheina.auth.user_login
-				INNER JOIN users
-					ON users.user_id = user_login.user_id
-			WHERE email_hash = %s;
-			""",
-			(email_hash,),
-			fetch_one=True,
-		)
+		try :
 
-		if not data :
-			raise Unauthorized('login failed.')
-
-		user_id, password_hash, secret, handle, name = data
-		password_hash = password_hash.tobytes().decode()
-
-		if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
-			raise Unauthorized('login failed.')
-
-		if self._argon2.check_needs_rehash(password_hash) :
-			password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
-			self.query("""
-				UPDATE kheina.auth.user_login
-				SET password = %s
+			email_hash = self._hash_email(email)
+			data = self.query("""
+				SELECT user_login.user_id, password, secret, handle, display_name
+				FROM kheina.auth.user_login
+					INNER JOIN users
+						ON users.user_id = user_login.user_id
 				WHERE email_hash = %s;
 				""",
-				(password_hash, email_hash),
-				commit=True,
+				(email_hash,),
+				fetch_one=True,
 			)
 
-		if generate_token :
-			token = self._generate_token(user_id, token_data) if generate_token else None
+			if not data :
+				raise Unauthorized('login failed.')
+
+			user_id, password_hash, secret, handle, name = data
+			password_hash = password_hash.tobytes().decode()
+
+			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
+				raise Unauthorized('login failed.')
+
+			if self._argon2.check_needs_rehash(password_hash) :
+				password_hash = self._argon2.hash(password.encode() + self._secrets[secret]).encode()
+				self.query("""
+					UPDATE kheina.auth.user_login
+					SET password = %s
+					WHERE email_hash = %s;
+					""",
+					(password_hash, email_hash),
+					commit=True,
+				)
+
+			if generate_token :
+				token = self._generate_token(user_id, token_data) if generate_token else None
+
+		except HttpError :
+			raise
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
 
 		return {
 			'user_id': user_id,
@@ -244,34 +262,43 @@ class Authenticator(SqlInterface, Hashable) :
 		}
 
 
-	@HttpErrorHandler('changing user password')
 	def changePassword(self, email: str, old_password: str, new_password: str) :
 		"""
 		changes a user's password
 		"""
-		email_hash = self._hash_email(email)
-		data = self.query("""
-			SELECT user_login.user_id, password, secret, handle, display_name
-			FROM kheina.auth.user_login
-				INNER JOIN users
-					ON users.user_id = user_login.user_id
-			WHERE email_hash = %s;
-			""",
-			(email_hash,),
-			fetch_one=True,
-		)
+		try :
 
-		if not data :
-			raise Unauthorized('password change failed.')
+			email_hash = self._hash_email(email)
+			data = self.query("""
+				SELECT user_login.user_id, password, secret, handle, display_name
+				FROM kheina.auth.user_login
+					INNER JOIN users
+						ON users.user_id = user_login.user_id
+				WHERE email_hash = %s;
+				""",
+				(email_hash,),
+				fetch_one=True,
+			)
 
-		user_id, password_hash, secret, handle, name = data
-		password_hash = password_hash.tobytes()
+			if not data :
+				raise Unauthorized('password change failed.')
 
-		if not self._argon2.verify(password_hash.decode(), old_password.encode() + self._secrets[secret]) :
-			raise Unauthorized('password change failed.')
+			user_id, password_hash, secret, handle, name = data
+			password_hash = password_hash.tobytes()
 
-		secret = randbelow(len(self._secrets))
-		new_password_hash = self._argon2.hash(new_password.encode() + self._secrets[secret]).encode()
+			if not self._argon2.verify(password_hash.decode(), old_password.encode() + self._secrets[secret]) :
+				raise Unauthorized('password change failed.')
+
+			secret = randbelow(len(self._secrets))
+			new_password_hash = self._argon2.hash(new_password.encode() + self._secrets[secret]).encode()
+
+		except HttpError :
+			raise
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
 
 		self.query("""
 			UPDATE kheina.auth.user_login
@@ -279,7 +306,7 @@ class Authenticator(SqlInterface, Hashable) :
 				secret = %s
 			WHERE email_hash = %s;
 			""",
-			(password_hash, secret, email_hash),
+			(new_password_hash, secret, email_hash),
 			commit=True,
 		)
 

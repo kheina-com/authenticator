@@ -1,15 +1,11 @@
 from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from kh_common.exceptions import jsonErrorHandler
-from starlette.responses import UJSONResponse
+from kh_common.server import ServerApp, UJSONResponse
 from authenticator import Authenticator
 from fastapi import FastAPI
 
 
-app = FastAPI()
-app.add_exception_handler(Exception, jsonErrorHandler)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts={ 'localhost', '127.0.0.1', 'auth.kheina.com', 'auth-dev.kheina.com' })
-
+app = ServerApp(auth=False)
 authServer = Authenticator()
 
 
