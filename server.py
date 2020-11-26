@@ -1,8 +1,6 @@
-from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest, TokenRequest
 from kh_common.server import ServerApp, UJSONResponse
 from authenticator import Authenticator
-from fastapi import FastAPI
 
 
 app = ServerApp(auth=False)
@@ -18,6 +16,13 @@ async def shutdown() :
 async def v1PublicKey(req: PublicKeyRequest) :
 	return UJSONResponse(
 		authServer.fetchPublicKey(req.key_id, req.algorithm)
+	)
+
+
+@app.post('/v1/sign_data')
+async def v1SignData(req: TokenRequest) :
+	return UJSONResponse(
+		authServer.generate_token(0, TokenRequest.token_data)
 	)
 
 

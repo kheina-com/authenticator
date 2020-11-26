@@ -69,13 +69,13 @@ class Authenticator(SqlInterface, Hashable) :
 		return int(self._key_refresh_interval * floor(timestamp / self._key_refresh_interval))
 
 
-	def _generate_token(self, user_id: int, token_data: dict) :
+	def generate_token(self, user_id: int, token_data: dict) :
 		issued = time()
 		expires = self._calc_timestamp(issued) + self._token_expires_interval
 
 		if self._active_private_key['start'] <= issued < self._active_private_key['end'] :
 			private_key = self._active_private_key['key']
-			issued = self._active_private_key['issued']
+			pk_issued = self._active_private_key['issued']
 			key_id = self._active_private_key['id']
 
 		else :
@@ -115,15 +115,15 @@ class Authenticator(SqlInterface, Hashable) :
 				fetch_one=True,
 			)
 			key_id = self._active_private_key['id'] = data[0]
-			issued = self._active_private_key['issued'] = data[1].timestamp()
-			expires = int(data[2].timestamp())
+			pk_issued = self._active_private_key['issued'] = data[1].timestamp()
+			pk_expires = int(data[2].timestamp())
 
 			# put the new key into the public keyring
 			self._public_keyring[(self._token_algorithm, key_id)] = {
 				'key': b64encode(public_key).decode(),
 				'signature': b64encode(signature).decode(),
-				'issued': issued,
-				'expires': expires,
+				'issued': pk_issued,
+				'expires': pk_expires,
 			}
 
 		load = b'.'.join([
@@ -144,7 +144,7 @@ class Authenticator(SqlInterface, Hashable) :
 			'version': self._token_version,
 			'algorithm': self._token_algorithm,
 			'key_id': key_id,
-			'issued': time(),  # token issued is always current time
+			'issued': issued,
 			'expires': expires,
 			'token': token.decode(),
 		}
@@ -244,7 +244,7 @@ class Authenticator(SqlInterface, Hashable) :
 				)
 
 			if generate_token :
-				token = self._generate_token(user_id, token_data) if generate_token else None
+				token = self.generate_token(user_id, token_data) if generate_token else None
 
 		except HttpError :
 			raise
