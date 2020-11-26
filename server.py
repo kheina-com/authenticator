@@ -22,7 +22,7 @@ async def v1PublicKey(req: PublicKeyRequest) :
 @app.post('/v1/sign_data')
 async def v1SignData(req: TokenRequest) :
 	return UJSONResponse(
-		authServer.generate_token(0, TokenRequest.token_data)
+		authServer.generate_token(0, req.token_data)
 	)
 
 
