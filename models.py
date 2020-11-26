@@ -8,6 +8,10 @@ class AuthAlgorithm(Enum) :
 	ed25519: str = 'ed25519'
 
 
+class TokenRequest(BaseModel) :
+	token_data: Dict[str, Any]
+
+
 class PublicKeyRequest(BaseModel) :
 	key_id: int
 	algorithm: AuthAlgorithm
