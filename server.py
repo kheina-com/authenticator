@@ -3,7 +3,7 @@ from kh_common.server import ServerApp, UJSONResponse
 from authenticator import Authenticator
 
 
-app = ServerApp(auth=False)
+app = ServerApp(auth=False, cors=False)
 authServer = Authenticator()
 
 
