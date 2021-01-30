@@ -9,6 +9,7 @@ class AuthAlgorithm(Enum) :
 
 
 class TokenRequest(BaseModel) :
+	user_id: int = 0
 	token_data: Dict[str, Any]
 
 
