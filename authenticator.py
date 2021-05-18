@@ -265,7 +265,7 @@ class Authenticator(SqlInterface, Hashable) :
 			'user': handle,
 			'name': name,
 			'mod': mod,
-			'token': token,
+			'token_data': token,
 		}
 
 
@@ -351,7 +351,7 @@ class Authenticator(SqlInterface, Hashable) :
 				'user': handle,
 				'name': name,
 				'mod': False,
-				'token': self.generate_token(data[0], token_data),
+				'token_data': self.generate_token(data[0], token_data),
 			}
 
 		except UniqueViolation :
