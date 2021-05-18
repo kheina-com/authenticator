@@ -1,4 +1,4 @@
-from kh_common.exceptions.http_error import Unauthorized, Conflict, InternalServerError, NotFound
+from kh_common.exceptions.http_error import Unauthorized, Conflict, HttpError, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from kh_common.config.credentials import argon2, secrets
