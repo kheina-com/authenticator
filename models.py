@@ -31,6 +31,7 @@ class CreateUserRequest(BaseModel) :
 	handle: str
 	email: str
 	password: str
+	token_data: Optional[Dict[str, Any]] = { }
 
 
 class ChangePasswordRequest(BaseModel) :

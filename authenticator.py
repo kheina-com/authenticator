@@ -1,4 +1,4 @@
-from kh_common.exceptions.http_error import Unauthorized, BadRequest, InternalServerError, NotFound
+from kh_common.exceptions.http_error import Unauthorized, Conflict, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from kh_common.config.credentials import argon2, secrets
@@ -206,6 +206,7 @@ class Authenticator(SqlInterface, Hashable) :
 			'user_id': int,
 			'user': str,
 			'name': str,
+			'mod': bool,
 			'token_data': Optional[dict],
 		}
 		"""
@@ -213,7 +214,13 @@ class Authenticator(SqlInterface, Hashable) :
 
 			email_hash = self._hash_email(email)
 			data = self.query("""
-				SELECT user_login.user_id, password, secret, handle, display_name
+				SELECT
+					user_login.user_id,
+					user_login.password,
+					user_login.secret,
+					users.handle,
+					users.display_name,
+					users.mod
 				FROM kheina.auth.user_login
 					INNER JOIN users
 						ON users.user_id = user_login.user_id
@@ -226,7 +233,7 @@ class Authenticator(SqlInterface, Hashable) :
 			if not data :
 				raise Unauthorized('login failed.')
 
-			user_id, password_hash, secret, handle, name = data
+			user_id, password_hash, secret, handle, name, mod = data
 			password_hash = password_hash.tobytes().decode()
 
 			if not self._argon2.verify(password_hash, password.encode() + self._secrets[secret]) :
@@ -243,8 +250,7 @@ class Authenticator(SqlInterface, Hashable) :
 					commit=True,
 				)
 
-			if generate_token :
-				token = self.generate_token(user_id, token_data) if generate_token else None
+			token = self.generate_token(user_id, token_data) if generate_token else None
 
 		except HttpError :
 			raise
@@ -258,7 +264,8 @@ class Authenticator(SqlInterface, Hashable) :
 			'user_id': user_id,
 			'user': handle,
 			'name': name,
-			'token_data': token if generate_token else None,
+			'mod': mod,
+			'token': token,
 		}
 
 
@@ -311,7 +318,7 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	def create(self, handle: str, name: str, email: str, password: str) :
+	def create(self, handle: str, name: str, email: str, password: str, token_data:Dict[str, Any]={ }) :
 		"""
 		returns user data on success otherwise raises Bad Request
 		"""
@@ -343,12 +350,14 @@ class Authenticator(SqlInterface, Hashable) :
 				'user_id': data[0],
 				'user': handle,
 				'name': name,
+				'mod': False,
+				'token': self.generate_token(data[0], token_data),
 			}
 
 		except UniqueViolation :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
-			raise BadRequest('a user already exists with that handle or email.', logdata={ 'refid': refid })
+			raise Conflict('a user already exists with that handle or email.', logdata={ 'refid': refid })
 
 		except :
 			refid = uuid4().hex

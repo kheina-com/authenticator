@@ -41,7 +41,7 @@ async def v1Login(req: LoginRequest) :
 @app.post('/v1/create')
 async def v1CreateUser(req: CreateUserRequest) :
 	return UJSONResponse(
-		authServer.create(req.handle, req.name, req.email, req.password)
+		authServer.create(req.handle, req.name, req.email, req.password, req.token_data)
 	)
 
 
