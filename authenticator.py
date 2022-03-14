@@ -222,7 +222,7 @@ class Authenticator(SqlInterface, Hashable) :
 					users.display_name,
 					users.mod
 				FROM kheina.auth.user_login
-					INNER JOIN users
+					INNER JOIN kheina.public.users
 						ON users.user_id = user_login.user_id
 				WHERE email_hash = %s;
 				""",
@@ -279,7 +279,7 @@ class Authenticator(SqlInterface, Hashable) :
 			data = self.query("""
 				SELECT user_login.user_id, password, secret, handle, display_name
 				FROM kheina.auth.user_login
-					INNER JOIN users
+					INNER JOIN kheina.public.users
 						ON users.user_id = user_login.user_id
 				WHERE email_hash = %s;
 				""",
