@@ -21,8 +21,9 @@ async def v1PublicKey(req: PublicKeyRequest) :
 
 @app.post('/v1/sign_data')
 async def v1SignData(req: TokenRequest) :
+	# we would like to be able to sign arbitrary data, but that opens up a world of spoofing issues, so we're restricting to only user 0 for now
 	return UJSONResponse(
-		authServer.generate_token(req.user_id, req.token_data)
+		authServer.generate_token(0, req.token_data)
 	)
 
 

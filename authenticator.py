@@ -1,9 +1,12 @@
 from kh_common.exceptions.http_error import Unauthorized, Conflict, HttpError, InternalServerError, NotFound
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from kh_common.caching.key_value_store import KeyValueStore
+from kh_common.models.auth import AuthState, TokenMetadata
 from cryptography.hazmat.primitives import serialization
 from kh_common.config.credentials import argon2, secrets
 from argon2 import PasswordHasher as Argon2
 from psycopg2.errors import UniqueViolation
+from kh_common.datetime import datetime
 from kh_common.hashing import Hashable
 from kh_common.base64 import b64encode
 from kh_common.sql import SqlInterface
@@ -13,7 +16,7 @@ from secrets import randbelow
 from hashlib import sha3_512
 from math import floor, ceil
 from typing import Any, Dict
-from uuid import uuid4
+from uuid import UUID, uuid4
 from time import time
 import ujson as json
 
@@ -31,6 +34,9 @@ CREATE TABLE kheina.auth.token_keys (
 );
 CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.token_keys (algorithm, issued, expires);
 """
+
+
+KVS: KeyValueStore = KeyValueStore('kheina', 'token')
 
 
 class Authenticator(SqlInterface, Hashable) :
@@ -126,14 +132,28 @@ class Authenticator(SqlInterface, Hashable) :
 				'expires': pk_expires,
 			}
 
+		guid: UUID = uuid4()
+
 		load = b'.'.join([
 			self._token_algorithm.encode(),
 			b64encode(key_id.to_bytes(ceil(key_id.bit_length() / 8), 'big')),
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
 			b64encode(user_id.to_bytes(ceil(user_id.bit_length() / 8), 'big')),
-			b64encode(uuid4().bytes),
+			b64encode(guid.bytes),
 			json.dumps(token_data).encode(),
 		])
+
+		token_info: TokenMetadata = TokenMetadata(
+			version=self._token_version.encode,
+			state=AuthState.active,
+			issued=datetime.fromtimestamp(issued),
+			expires=datetime.fromtimestamp(expires),
+			key_id=key_id,
+			user_id=user_id,
+			algorithm=self._token_algorithm,
+			fingerprint=token_data.get('fp', '').encode(),
+		)
+		KVS.put(guid.bytes, token_info, self._token_expires_interval)
 
 		version = self._token_version.encode()
 		content = b64encode(version) + b'.' + b64encode(load)
