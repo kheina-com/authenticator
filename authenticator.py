@@ -144,7 +144,7 @@ class Authenticator(SqlInterface, Hashable) :
 		])
 
 		token_info: TokenMetadata = TokenMetadata(
-			version=self._token_version.encode,
+			version=self._token_version.encode(),
 			state=AuthState.active,
 			issued=datetime.fromtimestamp(issued),
 			expires=datetime.fromtimestamp(expires),
