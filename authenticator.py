@@ -1,24 +1,29 @@
-from kh_common.exceptions.http_error import Unauthorized, Conflict, HttpError, InternalServerError, NotFound
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from kh_common.caching.key_value_store import KeyValueStore
-from kh_common.models.auth import AuthState, TokenMetadata
-from cryptography.hazmat.primitives import serialization
-from kh_common.config.credentials import argon2, secrets
-from argon2 import PasswordHasher as Argon2
-from psycopg2.errors import UniqueViolation
-from kh_common.datetime import datetime
-from kh_common.hashing import Hashable
-from kh_common.base64 import b64encode
-from kh_common.sql import SqlInterface
-from models import AuthAlgorithm
-from kh_common import logging
-from secrets import randbelow
 from hashlib import sha3_512
-from math import floor, ceil
+from math import ceil, floor
+from re import IGNORECASE
+from re import compile as re_compile
+from secrets import randbelow
+from time import time
 from typing import Any, Dict
 from uuid import UUID, uuid4
-from time import time
+
 import ujson as json
+from argon2 import PasswordHasher as Argon2
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from kh_common import logging
+from kh_common.auth import Scope
+from kh_common.base64 import b64encode
+from kh_common.caching.key_value_store import KeyValueStore
+from kh_common.config.credentials import argon2, secrets
+from kh_common.datetime import datetime
+from kh_common.exceptions.http_error import BadRequest, Conflict, HttpError, InternalServerError, NotFound, Unauthorized
+from kh_common.hashing import Hashable
+from kh_common.models.auth import AuthState, TokenMetadata
+from kh_common.sql import SqlInterface
+from psycopg2.errors import UniqueViolation
+
+from models import AuthAlgorithm
 
 
 """
@@ -41,6 +46,8 @@ KVS: KeyValueStore = KeyValueStore('kheina', 'token')
 
 class Authenticator(SqlInterface, Hashable) :
 
+	EmailRegex = re_compile(r'^(?P<user>[A-Z0-9._%+-]+)@(?P<domain>[A-Z0-9.-]+\.[A-Z]{2,})$', flags=IGNORECASE)
+
 	def __init__(self) :
 		Hashable.__init__(self)
 		SqlInterface.__init__(self)
@@ -59,6 +66,13 @@ class Authenticator(SqlInterface, Hashable) :
 			'end': 0,
 			'id': 0,
 		}
+
+
+	def _validateEmail(self, email: str) -> Dict[str, str] :
+		email = Authenticator.EmailRegex.search(email)
+		if not email :
+			raise BadRequest('the given email is invalid.')
+		return email.groupdict()
 
 
 	def _initArgon2(self) :
@@ -230,8 +244,13 @@ class Authenticator(SqlInterface, Hashable) :
 			'token_data': Optional[dict],
 		}
 		"""
-		try :
 
+		if 'scope' in token_data :
+			# this is generated here, don't trust incoming data
+			del token_data['scope']
+
+		try :
+			email_dict: Dict[str, str] = self._validateEmail(email)
 			email_hash = self._hash_email(email)
 			data = self.query("""
 				SELECT
@@ -270,7 +289,15 @@ class Authenticator(SqlInterface, Hashable) :
 					commit=True,
 				)
 
-			token = self.generate_token(user_id, token_data) if generate_token else None
+			token = None
+			if generate_token :
+				if email_dict['domain'] in { 'kheina.com', 'fuzz.ly' } :
+					token_data['scope'] = Scope.admin.all_included_scopes()
+
+				elif mod :
+					token_data['scope'] = Scope.mod.all_included_scopes()
+
+				self.generate_token(user_id, token_data)
 
 		except HttpError :
 			raise

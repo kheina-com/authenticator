@@ -1,7 +1,8 @@
-from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest, TokenRequest
 from fastapi.responses import UJSONResponse
-from authenticator import Authenticator
 from kh_common.server import ServerApp
+
+from authenticator import Authenticator
+from models import ChangePasswordRequest, CreateUserRequest, LoginRequest, PublicKeyRequest, TokenRequest
 
 
 app = ServerApp(auth=False, cors=False)

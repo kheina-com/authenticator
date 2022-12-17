@@ -1,6 +1,7 @@
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel
 from enum import Enum, unique
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel
 
 
 @unique
