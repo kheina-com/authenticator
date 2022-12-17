@@ -21,6 +21,7 @@ from kh_common.exceptions.http_error import BadRequest, Conflict, HttpError, Int
 from kh_common.hashing import Hashable
 from kh_common.models.auth import AuthState, TokenMetadata
 from kh_common.sql import SqlInterface
+from kh_common.utilities.json import json_stream
 from psycopg2.errors import UniqueViolation
 
 from models import AuthAlgorithm
@@ -154,7 +155,7 @@ class Authenticator(SqlInterface, Hashable) :
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
 			b64encode(user_id.to_bytes(ceil(user_id.bit_length() / 8), 'big')),
 			b64encode(guid.bytes),
-			json.dumps(token_data).encode(),
+			json.dumps(json_stream(token_data)).encode(),
 		])
 
 		token_info: TokenMetadata = TokenMetadata(
