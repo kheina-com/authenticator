@@ -298,7 +298,7 @@ class Authenticator(SqlInterface, Hashable) :
 				elif mod :
 					token_data['scope'] = Scope.mod.all_included_scopes()
 
-				self.generate_token(user_id, token_data)
+				token = self.generate_token(user_id, token_data)
 
 		except HttpError :
 			raise
