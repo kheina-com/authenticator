@@ -25,7 +25,7 @@ from kh_common.sql import SqlInterface
 from kh_common.utilities.json import json_stream
 from psycopg2.errors import UniqueViolation
 
-from models import AuthAlgorithm, BotCreateResponse, BotLogin, BotLoginRequest, BotType, LoginResponse, PublicKeyResponse, TokenResponse
+from models import AuthAlgorithm, BotCreateResponse, BotLogin, BotType, LoginResponse, PublicKeyResponse, TokenResponse
 
 
 """
@@ -361,7 +361,7 @@ class Authenticator(SqlInterface, Hashable) :
 			# this should never run, thanks to pydantic/fastapi. just being extra careful.
 			raise BadRequest('bot_type must be a BotType value.')
 
-		user_id: Optional[int]
+		user_id: Optional[int] = None
 
 		if bot_type == BotType.internal :
 			await user.verify_scope(Scope.admin)
@@ -377,12 +377,22 @@ class Authenticator(SqlInterface, Hashable) :
 		try :
 			data = await self.query_async("""
 				INSERT INTO kheina.auth.bot_login
-				(user_id, password, secret, bot_type)
+				(user_id, password, secret, bot_type, created_by)
 				VALUES
-				(%s, %s, %s, %s)
+				(%s, %s, %s, %s, %s)
+				ON CONFLICT (user_id) WHERE user_id IS NOT NULL DO
+					UPDATE SET
+						user_id = %s,
+						password = %s,
+						secret = %s,
+						bot_type = %s
+					WHERE bot_login.user_id = %s
 				RETURNING bot_id;
 				""",
-				(user_id, password_hash, secret, bot_type),
+				(
+					user_id, password_hash, secret, bot_type, user.user_id,
+					user_id, password_hash, secret, bot_type, user.user_id,
+				),
 				commit=True,
 				fetch_one=True,
 			)
