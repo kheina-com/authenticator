@@ -93,9 +93,7 @@ class Authenticator(SqlInterface, Hashable) :
 
 	def __init__(self) :
 		Hashable.__init__(self)
-		SqlInterface.__init__(self, conversions={
-			Enum: lambda x : x.name,
-		})
+		SqlInterface.__init__(self)
 		self.logger = logging.getLogger('auth')
 		self._initArgon2()
 		self._key_refresh_interval = 60 * 60 * 24  # 24 hours
@@ -393,8 +391,8 @@ class Authenticator(SqlInterface, Hashable) :
 				RETURNING bot_id;
 				""",
 				(
-					user_id, password_hash, secret, bot_type, user.user_id,
-					user_id, password_hash, secret, bot_type, user.user_id,
+					user_id, password_hash, secret, bot_type.name, user.user_id,
+					user_id, password_hash, secret, bot_type.name, user.user_id,
 				),
 				commit=True,
 				fetch_one=True,
