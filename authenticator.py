@@ -418,6 +418,11 @@ class Authenticator(SqlInterface, Hashable) :
 	async def botLogin(self, token: str) -> LoginResponse :
 		bot_login: BotLogin = BotLoginDeserializer(b64decode(token))
 
+		user_id: Optional[int]
+		password_hash: bytes
+		secret: int
+		bot_type: BotType
+
 		try :
 			data = await self.query_async("""
 				SELECT
@@ -435,9 +440,10 @@ class Authenticator(SqlInterface, Hashable) :
 			if not data :
 				raise Unauthorized('bot login failed.')
 
+			bot_type_id: int
 			user_id, password_hash, secret, bot_type_id = data
 			password_hash = password_hash.tobytes().decode()
-			bot_type: BotType = BotType[bot_type_id]
+			bot_type = BotType(bot_type_id)
 
 			if user_id != bot_login.user_id :
 				raise Unauthorized('login failed.')
@@ -466,7 +472,7 @@ class Authenticator(SqlInterface, Hashable) :
 
 		return LoginResponse(
 			user_id=user_id,
-			handle='',
+			handle='',  # TODO: if user_id is not None, populate handle
 			mod=False,
 			token=self.generate_token(user_id, { 'scope': [Scope.internal if bot_type == BotType.internal else Scope.bot] }),
 		)
