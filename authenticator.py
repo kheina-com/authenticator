@@ -386,7 +386,7 @@ class Authenticator(SqlInterface, Hashable) :
 						user_id = %s,
 						password = %s,
 						secret = %s,
-						bot_type = %s
+						bot_type_id = %s
 					WHERE bot_login.user_id = %s
 				RETURNING bot_id;
 				""",
