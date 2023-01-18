@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum, unique
 from typing import Any, Dict, Optional
 
@@ -79,3 +80,11 @@ class BotCreateResponse(BaseModel) :
 
 class BotLoginRequest(BaseModel) :
 	token: str
+
+
+class PublicKeyResponse(BaseModel) :
+	algorithm: AuthAlgorithm
+	key: str
+	signature: str
+	issued: datetime
+	expires: datetime

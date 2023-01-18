@@ -1,5 +1,7 @@
 from hashlib import sha3_512
 from math import ceil, floor
+from re import IGNORECASE
+from re import compile as re_compile
 from secrets import randbelow, token_bytes
 from time import time
 from typing import Any, Dict, Optional
@@ -12,7 +14,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from kh_common import logging
 from kh_common.auth import KhUser, Scope
-from kh_common.base64 import b64encode
+from kh_common.base64 import b64decode, b64encode
 from kh_common.caching.key_value_store import KeyValueStore
 from kh_common.config.credentials import argon2, secrets
 from kh_common.datetime import datetime
@@ -20,9 +22,10 @@ from kh_common.exceptions.http_error import BadRequest, Conflict, HttpError, Int
 from kh_common.hashing import Hashable
 from kh_common.models.auth import AuthState, TokenMetadata
 from kh_common.sql import SqlInterface
+from kh_common.utilities.json import json_stream
 from psycopg2.errors import UniqueViolation
 
-from models import AuthAlgorithm, BotCreateResponse, BotLogin, BotLoginRequest, BotType, LoginResponse, TokenResponse
+from models import AuthAlgorithm, BotCreateResponse, BotLogin, BotLoginRequest, BotType, LoginResponse, PublicKeyResponse, TokenResponse
 
 
 """
@@ -85,6 +88,8 @@ BotLoginDeserializer: AvroDeserializer = AvroDeserializer(BotLogin)
 
 class Authenticator(SqlInterface, Hashable) :
 
+	EmailRegex = re_compile(r'^(?P<user>[A-Z0-9._%+-]+)@(?P<domain>[A-Z0-9.-]+\.[A-Z]{2,})$', flags=IGNORECASE)
+
 	def __init__(self) :
 		Hashable.__init__(self)
 		SqlInterface.__init__(self)
@@ -103,6 +108,13 @@ class Authenticator(SqlInterface, Hashable) :
 			'end': 0,
 			'id': 0,
 		}
+
+
+	def _validateEmail(self, email: str) -> Dict[str, str] :
+		email = Authenticator.EmailRegex.search(email)
+		if not email :
+			raise BadRequest('the given email is invalid.')
+		return email.groupdict()
 
 
 	def _initArgon2(self) :
@@ -184,7 +196,7 @@ class Authenticator(SqlInterface, Hashable) :
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
 			b64encode(user_id.to_bytes(ceil(user_id.bit_length() / 8), 'big')),
 			b64encode(guid.bytes),
-			json.dumps(token_data).encode(),
+			json.dumps(json_stream(token_data)).encode(),
 		])
 
 		token_info: TokenMetadata = TokenMetadata(
@@ -214,7 +226,7 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) :
+	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) -> PublicKeyResponse :
 		algorithm = algorithm.name if algorithm else self._token_algorithm.name
 
 		lookup_key = (algorithm, key_id)
@@ -263,7 +275,7 @@ class Authenticator(SqlInterface, Hashable) :
 		return self._conn.closed
 
 
-	def login(self, email: str, password: str, token_data:Dict[str, Any]={ }) :
+	def login(self, email: str, password: str, token_data:Dict[str, Any]={ }) -> LoginResponse :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
@@ -274,8 +286,13 @@ class Authenticator(SqlInterface, Hashable) :
 			'token_data': Optional[dict],
 		}
 		"""
-		try :
 
+		if 'scope' in token_data :
+			# this is generated here, don't trust incoming data
+			del token_data['scope']
+
+		try :
+			email_dict: Dict[str, str] = self._validateEmail(email)
 			email_hash = self._hash_email(email)
 			data = self.query("""
 				SELECT
@@ -313,6 +330,12 @@ class Authenticator(SqlInterface, Hashable) :
 					(password_hash, email_hash),
 					commit=True,
 				)
+
+			if email_dict['domain'] in { 'kheina.com', 'fuzz.ly' } :
+				token_data['scope'] = Scope.admin.all_included_scopes()
+
+			elif mod :
+				token_data['scope'] = Scope.mod.all_included_scopes()
 
 			token: TokenResponse = self.generate_token(user_id, token_data)
 
@@ -381,8 +404,8 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	async def botLogin(self, body: BotLoginRequest) -> LoginResponse :
-		bot_login: BotLogin = BotLoginDeserializer(body.token.encode())
+	async def botLogin(self, token: str) -> LoginResponse :
+		bot_login: BotLogin = BotLoginDeserializer(b64decode(token))
 
 		try :
 			data = await self.query_async("""
@@ -487,7 +510,7 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	def create(self, handle: str, name: str, email: str, password: str, token_data:Dict[str, Any]={ }) :
+	def create(self, handle: str, name: str, email: str, password: str, token_data:Dict[str, Any]={ }) -> LoginResponse :
 		"""
 		returns user data on success otherwise raises Bad Request
 		"""
@@ -515,13 +538,15 @@ class Authenticator(SqlInterface, Hashable) :
 				commit=True,
 				fetch_one=True,
 			)
-			return {
-				'user_id': data[0],
-				'user': handle,
-				'name': name,
-				'mod': False,
-				'token_data': self.generate_token(data[0], token_data),
-			}
+
+
+			return LoginResponse(
+				user_id=data[0],
+				handle=handle,
+				name=name,
+				mod=False,
+				token=self.generate_token(data[0], token_data),
+			)
 
 		except UniqueViolation :
 			refid = uuid4().hex
