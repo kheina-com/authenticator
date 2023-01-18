@@ -190,12 +190,13 @@ class Authenticator(SqlInterface, Hashable) :
 			}
 
 		guid: UUID = uuid4()
+		user_id = user_id or 0
 
 		load = b'.'.join([
 			self._token_algorithm.encode(),
 			b64encode(key_id.to_bytes(ceil(key_id.bit_length() / 8), 'big')),
 			b64encode(expires.to_bytes(ceil(expires.bit_length() / 8), 'big')),
-			b64encode(user_id.to_bytes(ceil((user_id or 0).bit_length() / 8), 'big')),
+			b64encode(user_id.to_bytes(ceil(user_id.bit_length() / 8), 'big')),
 			b64encode(guid.bytes),
 			json.dumps(json_stream(token_data)).encode(),
 		])
