@@ -190,7 +190,6 @@ class Authenticator(SqlInterface, Hashable) :
 			}
 
 		guid: UUID = uuid4()
-		user_id = user_id or 0
 
 		load = b'.'.join([
 			self._token_algorithm.encode(),
@@ -470,6 +469,8 @@ class Authenticator(SqlInterface, Hashable) :
 			refid = uuid4().hex
 			self.logger.exception({ 'refid': refid })
 			raise InternalServerError('an error occurred during bot verification.', logdata={ 'refid': refid })
+
+		user_id: int = user_id or 0
 
 		return LoginResponse(
 			user_id=user_id,
