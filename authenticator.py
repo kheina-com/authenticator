@@ -378,7 +378,7 @@ class Authenticator(SqlInterface, Hashable) :
 		try :
 			data = await self.query_async("""
 				INSERT INTO kheina.auth.bot_login
-				(user_id, password, secret, bot_type, created_by)
+				(user_id, password, secret, bot_type_id, created_by)
 				VALUES
 				(%s, %s, %s, %s, %s)
 				ON CONFLICT (user_id) WHERE user_id IS NOT NULL DO
@@ -391,8 +391,8 @@ class Authenticator(SqlInterface, Hashable) :
 				RETURNING bot_id;
 				""",
 				(
-					user_id, password_hash, secret, bot_type.name, user.user_id,
-					user_id, password_hash, secret, bot_type.name, user.user_id,
+					user_id, password_hash, secret, bot_type.value, user.user_id,
+					user_id, password_hash, secret, bot_type.value, user.user_id,
 				),
 				commit=True,
 				fetch_one=True,

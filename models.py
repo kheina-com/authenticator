@@ -66,7 +66,7 @@ class BotLogin(BaseModel) :
 	secret: AvroInt
 
 
-class BotType(Enum) :
+class BotType(int, Enum) :
 	"""
 	this enum maps to a db type.
 	"""
