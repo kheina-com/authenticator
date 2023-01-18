@@ -1,42 +1,86 @@
-from kh_common.exceptions.http_error import Unauthorized, Conflict, HttpError, InternalServerError, NotFound
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from kh_common.caching.key_value_store import KeyValueStore
-from kh_common.models.auth import AuthState, TokenMetadata
-from cryptography.hazmat.primitives import serialization
-from kh_common.config.credentials import argon2, secrets
-from argon2 import PasswordHasher as Argon2
-from psycopg2.errors import UniqueViolation
-from kh_common.datetime import datetime
-from kh_common.hashing import Hashable
-from kh_common.base64 import b64encode
-from kh_common.sql import SqlInterface
-from models import AuthAlgorithm
-from kh_common import logging
-from secrets import randbelow
 from hashlib import sha3_512
-from math import floor, ceil
-from typing import Any, Dict
-from uuid import UUID, uuid4
+from math import ceil, floor
+from secrets import randbelow, token_bytes
 from time import time
+from typing import Any, Dict, Optional
+from uuid import UUID, uuid4
+
 import ujson as json
+from argon2 import PasswordHasher as Argon2
+from avrofastapi.serialization import AvroDeserializer, AvroSerializer
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from kh_common import logging
+from kh_common.auth import KhUser, Scope
+from kh_common.base64 import b64encode
+from kh_common.caching.key_value_store import KeyValueStore
+from kh_common.config.credentials import argon2, secrets
+from kh_common.datetime import datetime
+from kh_common.exceptions.http_error import BadRequest, Conflict, HttpError, InternalServerError, NotFound, Unauthorized
+from kh_common.hashing import Hashable
+from kh_common.models.auth import AuthState, TokenMetadata
+from kh_common.sql import SqlInterface
+from psycopg2.errors import UniqueViolation
+
+from models import AuthAlgorithm, BotCreateResponse, BotLogin, BotLoginRequest, BotType, LoginResponse, TokenResponse
 
 
 """
-table definition:
-CREATE TABLE kheina.auth.token_keys (
-	key_id INT UNIQUE GENERATED ALWAYS AS IDENTITY,
-	algorithm TEXT NOT NULL,
-	public_key BYTEA NOT NULL,
-	signature BYTEA NOT NULL,
-	issued TIMESTAMPTZ NOT NULL DEFAULT now(),
-	expires TIMESTAMPTZ NOT NULL DEFAULT current_date + interval '30 days',
-	PRIMARY KEY (algorithm, key_id)
-);
-CREATE INDEX token_keys_algorithm_issued_expires_joint_index ON kheina.auth.token_keys (algorithm, issued, expires);
+                                                           Table "auth.token_keys"
+   Column   |           Type           | Collation | Nullable |               Default                | Storage  | Stats target | Description 
+------------+--------------------------+-----------+----------+--------------------------------------+----------+--------------+-------------
+ key_id     | integer                  |           | not null | generated always as identity         | plain    |              | 
+ algorithm  | text                     |           | not null |                                      | extended |              | 
+ public_key | bytea                    |           | not null |                                      | extended |              | 
+ signature  | bytea                    |           | not null |                                      | extended |              | 
+ issued     | timestamp with time zone |           | not null | now()                                | plain    |              | 
+ expires    | timestamp with time zone |           | not null | (CURRENT_DATE + '30 days'::interval) | plain    |              | 
+Indexes:
+    "token_keys_pkey" PRIMARY KEY, btree (algorithm, key_id)
+    "token_keys_key_id_key" UNIQUE CONSTRAINT, btree (key_id)
+    "token_keys_algorithm_issued_expires_joint_index" btree (algorithm, issued, expires)
+Access method: heap
+
+
+                                    Table "auth.user_login"
+   Column   |   Type   | Collation | Nullable | Default | Storage  | Stats target | Description 
+------------+----------+-----------+----------+---------+----------+--------------+-------------
+ user_id    | bigint   |           | not null |         | plain    |              | 
+ email_hash | bytea    |           | not null |         | extended |              | 
+ password   | bytea    |           | not null |         | extended |              | 
+ secret     | smallint |           | not null |         | plain    |              | 
+Indexes:
+    "user_login_pkey" PRIMARY KEY, btree (user_id)
+    "user_login_email_hash_key" UNIQUE CONSTRAINT, btree (email_hash)
+Foreign-key constraints:
+    "user_login_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(user_id)
+Access method: heap
+
+
+                                                Table "auth.bot_login"
+   Column    |   Type   | Collation | Nullable |           Default            | Storage  | Stats target | Description 
+-------------+----------+-----------+----------+------------------------------+----------+--------------+-------------
+ bot_id      | bigint   |           | not null | generated always as identity | plain    |              | 
+ user_id     | bigint   |           |          |                              | plain    |              | 
+ password    | bytea    |           | not null |                              | extended |              | 
+ secret      | smallint |           | not null |                              | plain    |              | 
+ bot_type_id | smallint |           | not null |                              | plain    |              | 
+ created_by  | bigint   |           | not null |                              | plain    |              | 
+Indexes:
+    "bot_login_pkey" PRIMARY KEY, btree (bot_id)
+    "bot_login_user_id_bot_id_joint_index" UNIQUE, btree (user_id, bot_id)
+    "bot_login_created_by_index" btree (created_by)
+Foreign-key constraints:
+    "bot_login_bot_type_id_fkey" FOREIGN KEY (bot_type_id) REFERENCES auth.bot_type(bot_type_id)
+    "bot_login_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(user_id)
+    "user_id_fk" FOREIGN KEY (user_id) REFERENCES users(user_id)
+Access method: heap
 """
 
 
 KVS: KeyValueStore = KeyValueStore('kheina', 'token')
+BotLoginSerializer: AvroSerializer = AvroSerializer(BotLogin)
+BotLoginDeserializer: AvroDeserializer = AvroDeserializer(BotLogin)
 
 
 class Authenticator(SqlInterface, Hashable) :
@@ -75,7 +119,7 @@ class Authenticator(SqlInterface, Hashable) :
 		return int(self._key_refresh_interval * floor(timestamp / self._key_refresh_interval))
 
 
-	def generate_token(self, user_id: int, token_data: dict) :
+	def generate_token(self, user_id: int, token_data: dict) -> TokenResponse :
 		issued = time()
 		expires = self._calc_timestamp(issued) + self._token_expires_interval
 
@@ -160,14 +204,14 @@ class Authenticator(SqlInterface, Hashable) :
 		signature = private_key.sign(content)
 		token = content + b'.' + b64encode(signature)
 
-		return {
-			'version': self._token_version,
-			'algorithm': self._token_algorithm,
-			'key_id': key_id,
-			'issued': issued,
-			'expires': expires,
-			'token': token.decode(),
-		}
+		return TokenResponse(
+			version=self._token_version,
+			algorithm=self._token_algorithm,
+			key_id=key_id,
+			issued=issued,
+			expires=expires,
+			token=token.decode(),
+		)
 
 
 	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) :
@@ -219,7 +263,7 @@ class Authenticator(SqlInterface, Hashable) :
 		return self._conn.closed
 
 
-	def login(self, email: str, password: str, generate_token:bool=False, token_data:Dict[str, Any]={ }) :
+	def login(self, email: str, password: str, token_data:Dict[str, Any]={ }) :
 		"""
 		returns user data on success otherwise raises Unauthorized
 		{
@@ -270,7 +314,7 @@ class Authenticator(SqlInterface, Hashable) :
 					commit=True,
 				)
 
-			token = self.generate_token(user_id, token_data) if generate_token else None
+			token: TokenResponse = self.generate_token(user_id, token_data)
 
 		except HttpError :
 			raise
@@ -280,13 +324,118 @@ class Authenticator(SqlInterface, Hashable) :
 			self.logger.exception({ 'refid': refid })
 			raise InternalServerError('an error occurred during verification.', logdata={ 'refid': refid })
 
-		return {
-			'user_id': user_id,
-			'user': handle,
-			'name': name,
-			'mod': mod,
-			'token_data': token,
-		}
+		return LoginResponse(
+			user_id=user_id,
+			handle=handle,
+			name=name,
+			mod=mod,
+			token=token,
+		)
+
+
+	async def createBot(self, user: KhUser, bot_type: BotType) -> BotCreateResponse :
+		if type(bot_type) != BotType :
+			# this should never run, thanks to pydantic/fastapi. just being extra careful.
+			raise BadRequest('bot_type must be a BotType value.')
+
+		user_id: Optional[int]
+
+		if bot_type == BotType.internal :
+			await user.verify_scope(Scope.admin)
+
+		else :
+			user_id = user.user_id
+
+		# now we can create the BotLogin object that will be returned to the user
+		password: bytes = token_bytes(argon2['hash_len'] or 64)
+		secret: int = randbelow(len(self._secrets))
+		password_hash: bytes = self._argon2.hash(password + self._secrets[secret]).encode()
+
+		try :
+			data = await self.query_async("""
+				INSERT INTO kheina.auth.bot_login
+				(user_id, password, secret, bot_type)
+				VALUES
+				(%s, %s, %s, %s)
+				RETURNING bot_id;
+				""",
+				(user_id, password_hash, secret, bot_type),
+				commit=True,
+				fetch_one=True,
+			)
+
+			bot_login: BotLogin = BotLogin(
+				bot_id=data[0],
+				user_id=user_id,
+				password=password,
+				secret=secret,
+			)
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred during bot creation.', logdata={ 'refid': refid })
+
+		return BotCreateResponse(
+			token=b64encode(BotLoginSerializer(bot_login)).decode(),
+		)
+
+
+	async def botLogin(self, body: BotLoginRequest) -> LoginResponse :
+		bot_login: BotLogin = BotLoginDeserializer(body.token.encode())
+
+		try :
+			data = await self.query_async("""
+				SELECT
+					bot_login.user_id,
+					bot_login.password,
+					bot_login.secret,
+					bot_login.bot_type_id
+				FROM kheina.auth.bot_login
+				WHERE bot_id = %s;
+				""",
+				(bot_login.bot_id,),
+				fetch_one=True,
+			)
+
+			if not data :
+				raise Unauthorized('bot login failed.')
+
+			user_id, password_hash, secret, bot_type_id = data
+			password_hash = password_hash.tobytes().decode()
+			bot_type: BotType = BotType[bot_type_id]
+
+			if user_id != bot_login.user_id :
+				raise Unauthorized('login failed.')
+
+			if not self._argon2.verify(password_hash, bot_login.password + self._secrets[secret]) :
+				raise Unauthorized('login failed.')
+
+			if self._argon2.check_needs_rehash(password_hash) :
+				password_hash = self._argon2.hash(bot_login.password + self._secrets[secret]).encode()
+				await self.query_async("""
+					UPDATE kheina.auth.bot_login
+					SET password = %s
+					WHERE bot_id = %s;
+					""",
+					(password_hash, bot_login.bot_id),
+					commit=True,
+				)
+
+		except HttpError :
+			raise
+
+		except :
+			refid = uuid4().hex
+			self.logger.exception({ 'refid': refid })
+			raise InternalServerError('an error occurred during bot verification.', logdata={ 'refid': refid })
+
+		return LoginResponse(
+			user_id=user_id,
+			handle='',
+			mod=False,
+			token=self.generate_token(user_id, { 'scope': [Scope.internal if bot_type == BotType.internal else Scope.bot] }),
+		)
 
 
 	def changePassword(self, email: str, old_password: str, new_password: str) :
