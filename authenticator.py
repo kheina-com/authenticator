@@ -1,3 +1,4 @@
+from enum import Enum
 from hashlib import sha3_512
 from math import ceil, floor
 from re import IGNORECASE
@@ -92,7 +93,9 @@ class Authenticator(SqlInterface, Hashable) :
 
 	def __init__(self) :
 		Hashable.__init__(self)
-		SqlInterface.__init__(self)
+		SqlInterface.__init__(self, conversions={
+			Enum: lambda x : x.name,
+		})
 		self.logger = logging.getLogger('auth')
 		self._initArgon2()
 		self._key_refresh_interval = 60 * 60 * 24  # 24 hours
