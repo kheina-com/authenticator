@@ -3,7 +3,7 @@ from enum import Enum, unique
 from typing import Any, Dict, Optional
 
 from avrofastapi.schema import AvroInt
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 
 @unique
@@ -72,6 +72,14 @@ class BotType(int, Enum) :
 	"""
 	internal: int = 1
 	bot: int = 2
+
+
+class BotCreateRequest(BaseModel) :
+	bot_type: BotType
+
+	@validator('bot_type', pre=True, always=True)
+	def _bot_type_validator(value) :
+		return BotType[value]
 
 
 class BotCreateResponse(BaseModel) :

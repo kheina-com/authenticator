@@ -3,7 +3,7 @@ from kh_common.auth import Scope
 from kh_common.server import Request, ServerApp
 
 from authenticator import Authenticator
-from models import BotLoginRequest, ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, PublicKeyRequest, PublicKeyResponse, TokenRequest, TokenResponse
+from models import BotLoginRequest, ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, PublicKeyRequest, PublicKeyResponse, TokenRequest, TokenResponse, BotCreateResponse, BotCreateRequest
 
 
 app = ServerApp(auth_required=False, cors=False)
@@ -50,9 +50,14 @@ async def v1ChangePassword(req: Request, body: ChangePasswordRequest) :
 
 
 @app.post('/v1/bot_login', response_model=LoginResponse)
-async def v1ChangePassword(req: Request, body: BotLoginRequest) :
-	await req.user.verify_scope(Scope.internal)
-	return authServer.botLogin(body.token)
+async def v1BotLogin(body: BotLoginRequest) :
+	return await authServer.botLogin(body.token)
+
+
+@app.post('/v1/bot_create', response_model=BotCreateResponse)
+async def v1CreateBot(req: Request, body: BotCreateRequest) :
+	await req.user.verify_scope(Scope.user)
+	return await authServer.createBot(req.user, body.bot_type)
 
 
 if __name__ == '__main__' :
