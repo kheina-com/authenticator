@@ -227,9 +227,8 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	def fetchPublicKey(self, key_id, algorithm:AuthAlgorithm=None) -> PublicKeyResponse :
-		algorithm = algorithm.name if algorithm else self._token_algorithm.name
-
+	def fetchPublicKey(self, key_id, algorithm: AuthAlgorithm = None) -> PublicKeyResponse :
+		algorithm = algorithm.name if algorithm else self._token_algorithm
 		lookup_key = (algorithm, key_id)
 
 		try :
@@ -265,10 +264,10 @@ class Authenticator(SqlInterface, Hashable) :
 			self.logger.exception({ 'refid': refid })
 			raise InternalServerError('an error occurred while retrieving public key.', logdata={ 'refid': refid })
 
-		return {
-			'algorithm': algorithm,
+		return PublicKeyResponse(
+			algorithm=algorithm,
 			**public_key,
-		}
+		)
 
 
 	def close(self) :

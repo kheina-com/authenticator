@@ -32,8 +32,8 @@ class TokenResponse(BaseModel) :
 	version: str
 	algorithm: AuthAlgorithm
 	key_id: int
-	issued: int
-	expires: int
+	issued: datetime
+	expires: datetime
 	token: str
 
 
