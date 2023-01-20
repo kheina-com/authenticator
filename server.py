@@ -18,7 +18,7 @@ authServer = Authenticator()
 def _fetch_public_key_override(key_id: int, algorithm: str) -> Ed25519PublicKey :
 	load: PublicKeyResponse = authServer.fetchPublicKey(key_id, AuthAlgorithm[algorithm])
 
-	if datetime.now() > datetime.fromtimestamp(load.expires) :
+	if datetime.now() > load.expires :
 		raise Unauthorized('Key has expired.')
 
 	key: bytes = b64decode(load.key)
