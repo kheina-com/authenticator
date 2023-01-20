@@ -15,7 +15,7 @@ authServer = Authenticator()
 
 
 @ArgsCache(60 * 60 * 24)  # 24 hour cache
-def _fetch_public_key_override(key_id: int, algorithm: str) -> Ed25519PublicKey :
+async def _fetch_public_key_override(key_id: int, algorithm: str) -> Ed25519PublicKey :
 	load: PublicKeyResponse = authServer.fetchPublicKey(key_id, AuthAlgorithm[algorithm])
 
 	if datetime.now() > load.expires :
