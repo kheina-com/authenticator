@@ -76,6 +76,7 @@ class BotType(int, Enum) :
 
 class BotCreateRequest(BaseModel) :
 	bot_type: BotType
+	user_id: int
 
 	@validator('bot_type', pre=True, always=True)
 	def _bot_type_validator(value) :

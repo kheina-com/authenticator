@@ -356,18 +356,15 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	async def createBot(self, user: KhUser, bot_type: BotType) -> BotCreateResponse :
+	async def createBot(self, user: KhUser, bot_type: BotType, requester: int) -> BotCreateResponse :
 		if type(bot_type) != BotType :
 			# this should never run, thanks to pydantic/fastapi. just being extra careful.
 			raise BadRequest('bot_type must be a BotType value.')
 
 		user_id: Optional[int] = None
 
-		if bot_type == BotType.internal :
-			await user.verify_scope(Scope.admin)
-
-		else :
-			user_id = user.user_id
+		if bot_type != BotType.internal :
+			user_id = requester
 
 		# now we can create the BotLogin object that will be returned to the user
 		password: bytes = token_bytes(argon2['hash_len'] or 64)
