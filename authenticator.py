@@ -14,7 +14,7 @@ from avrofastapi.serialization import AvroDeserializer, AvroSerializer
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from kh_common import logging
-from kh_common.auth import KhUser, Scope
+from kh_common.auth import Scope
 from kh_common.base64 import b64decode, b64encode
 from kh_common.caching.key_value_store import KeyValueStore
 from kh_common.config.credentials import argon2, secrets
@@ -356,7 +356,7 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	async def createBot(self, user: KhUser, bot_type: BotType, requester: int) -> BotCreateResponse :
+	async def createBot(self, bot_type: BotType, requester: int) -> BotCreateResponse :
 		if type(bot_type) != BotType :
 			# this should never run, thanks to pydantic/fastapi. just being extra careful.
 			raise BadRequest('bot_type must be a BotType value.')
@@ -387,8 +387,8 @@ class Authenticator(SqlInterface, Hashable) :
 				RETURNING bot_id;
 				""",
 				(
-					user_id, password_hash, secret, bot_type.value, user.user_id,
-					user_id, password_hash, secret, bot_type.value, user.user_id,
+					user_id, password_hash, secret, bot_type.value, requester,
+					user_id, password_hash, secret, bot_type.value, requester,
 				),
 				commit=True,
 				fetch_one=True,

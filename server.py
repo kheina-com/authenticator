@@ -85,7 +85,7 @@ async def v1BotLogin(body: BotLoginRequest) :
 @app.post('/v1/bot_create', response_model=BotCreateResponse)
 async def v1CreateBot(req: Request, body: BotCreateRequest) :
 	await req.user.verify_scope(auth.Scope.internal)
-	return await authServer.createBot(req.user, body.bot_type, body.user_id)
+	return await authServer.createBot(body.bot_type, body.user_id)
 
 
 if __name__ == '__main__' :
