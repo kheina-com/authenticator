@@ -1,4 +1,3 @@
-from enum import Enum
 from hashlib import sha3_512
 from math import ceil, floor
 from re import IGNORECASE
@@ -10,6 +9,7 @@ from uuid import UUID, uuid4
 
 import ujson as json
 from argon2 import PasswordHasher as Argon2
+from argon2.exceptions import VerifyMismatchError
 from avrofastapi.serialization import AvroDeserializer, AvroSerializer
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -339,6 +339,9 @@ class Authenticator(SqlInterface, Hashable) :
 
 			token: TokenResponse = self.generate_token(user_id, token_data)
 
+		except VerifyMismatchError :
+			raise Unauthorized('login failed.')
+
 		except HttpError :
 			raise
 
@@ -458,6 +461,9 @@ class Authenticator(SqlInterface, Hashable) :
 					commit=True,
 				)
 
+		except VerifyMismatchError :
+			raise Unauthorized('login failed.')
+
 		except HttpError :
 			raise
 
@@ -505,6 +511,9 @@ class Authenticator(SqlInterface, Hashable) :
 
 			secret = randbelow(len(self._secrets))
 			new_password_hash = self._argon2.hash(new_password.encode() + self._secrets[secret]).encode()
+
+		except VerifyMismatchError :
+			raise Unauthorized('login failed.')
 
 		except HttpError :
 			raise
