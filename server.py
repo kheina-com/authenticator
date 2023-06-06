@@ -68,7 +68,7 @@ async def v1Login(req: Request, body: LoginRequest) :
 @app.post('/v1/logout', status_code=204)
 async def v1Logout(req: Request, body: LogoutRequest) :
 	await req.user.verify_scope(auth.Scope.internal)
-	return await authServer.login(
+	return await authServer.logout(
 		body.token,
 	)
 

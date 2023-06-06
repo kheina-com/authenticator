@@ -10,11 +10,12 @@ from uuid import UUID, uuid4
 import ujson as json
 from argon2 import PasswordHasher as Argon2
 from argon2.exceptions import VerifyMismatchError
+from avrofastapi.models import RefId
 from avrofastapi.serialization import AvroDeserializer, AvroSerializer
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from kh_common import logging
-from kh_common.auth import KhUser, Scope
+from kh_common.auth import Scope
 from kh_common.base64 import b64decode, b64encode
 from kh_common.caching.key_value_store import KeyValueStore
 from kh_common.config.credentials import argon2, secrets
@@ -227,10 +228,10 @@ class Authenticator(SqlInterface, Hashable) :
 		)
 
 
-	async def logout(self, guid: UUID) :
+	async def logout(self, guid: RefId) :
 		# since this endpoint is behind user.authenticated, we already know that the
 		# token exists and all the information is correct. we just need to delete it.
-		await KVS.remove_async(guid.bytes)
+		await KVS.remove_async(guid)
 
 
 	def fetchPublicKey(self, key_id, algorithm: AuthAlgorithm = None) -> PublicKeyResponse :
