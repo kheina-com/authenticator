@@ -8,7 +8,7 @@ from kh_common.datetime import datetime
 from kh_common.exceptions.http_error import Unauthorized
 
 from authenticator import Authenticator
-from models import AuthAlgorithm, BotCreateRequest, BotCreateResponse, BotLoginRequest, ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, PublicKeyRequest, PublicKeyResponse, TokenRequest, TokenResponse
+from models import AuthAlgorithm, BotCreateRequest, BotCreateResponse, BotLoginRequest, ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, LogoutRequest, PublicKeyRequest, PublicKeyResponse, TokenRequest, TokenResponse
 
 
 authServer = Authenticator()
@@ -62,6 +62,14 @@ async def v1Login(req: Request, body: LoginRequest) :
 		body.email,
 		body.password,
 		body.token_data,
+	)
+
+
+@app.post('/v1/logout', status_code=204)
+async def v1Logout(req: Request, body: LogoutRequest) :
+	await req.user.verify_scope(auth.Scope.internal)
+	return await authServer.login(
+		body.token,
 	)
 
 

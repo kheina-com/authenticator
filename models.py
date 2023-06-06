@@ -1,8 +1,11 @@
 from datetime import datetime
 from enum import Enum, unique
 from typing import Any, Dict, Optional
+from uuid import UUID
 
+from avrofastapi.models import RefId
 from avrofastapi.schema import AvroInt
+from kh_common.base64 import b64decode
 from pydantic import BaseModel, validator
 
 
@@ -26,6 +29,24 @@ class LoginRequest(BaseModel) :
 	email: str
 	password: str
 	token_data: Optional[Dict[str, Any]] = { }
+
+
+class LogoutRequest(BaseModel) :
+	token: RefId
+
+	@validator('token', pre=True, allow_reuse=True)
+	def convert_uuid_bytes(value):
+		if isinstance(value, UUID) :
+			return value.bytes
+
+		if isinstance(value, str) :
+			if len(value) == 22 :
+				return b64decode(value)
+
+			if len(value) == 32 :
+				return bytes.fromhex(value)
+
+		return value
 
 
 class TokenResponse(BaseModel) :
